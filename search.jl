@@ -214,8 +214,11 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, pv::Vector{Mo
     end
 
     if depth == 0
-        empty!(pv)
-        return quiescence(b, α, β, ply, node_count, key_history)
+        if !ischeck(b)
+            empty!(pv)
+            return quiescence(b, α, β, ply, node_count, key_history)
+        end
+        depth = 1
     end
 
     hit, tt_score, tt_best = probe_tt(b.key, depth, α, β, ply)
@@ -245,13 +248,14 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, pv::Vector{Mo
             u = donullmove!(b)
             sc = -negamax(b, depth - 1 - R, -β, -β + 1, ply + 1, Move[], node_count, key_history)
             undomove!(b, u)
-            sc ≥ β && return β
+            sc ≥ β && return sc
         end
     end
 
     sort!(ml, by = m -> score_move(b, m, tt_best), rev = true)
 
     child_pv = Move[]
+    best_score = -INF
     best_move = Move(0)
     flag = TT_UPPER
 
@@ -273,7 +277,7 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, pv::Vector{Mo
             R = min(R, depth - 1)
 
             empty!(child_pv)
-            sc = -negamax(b, depth - 1 - R, -α - 1, -α, ply + 1, child_pv, node_count, key_history)
+            sc = -negamax(b, depth - 1 - R, -β, -α, ply + 1, child_pv, node_count, key_history)
 
             if sc > α
                 empty!(child_pv)
@@ -287,31 +291,35 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, pv::Vector{Mo
         pop!(key_history)
         undomove!(b, u)
 
-        if sc > α
-            α = sc
+        if sc > best_score
+            best_score = sc
             best_move = m
-            empty!(pv)
-            push!(pv, m)
-            append!(pv, child_pv)
-            flag = TT_EXACT
 
-            if α ≥ β
-                flag = TT_LOWER
-                if is_quiet
-                    update_history!(stm, from(m).val, to(m).val, depth * depth)
-                    for qm in searched_quiets
-                        update_history!(stm, from(qm).val, to(qm).val, -(depth * depth))
+            if sc > α
+                α = sc
+                empty!(pv)
+                push!(pv, m)
+                append!(pv, child_pv)
+                flag = TT_EXACT
+
+                if α ≥ β
+                    flag = TT_LOWER
+                    if is_quiet
+                        update_history!(stm, from(m).val, to(m).val, depth * depth)
+                        for qm in searched_quiets
+                            update_history!(stm, from(qm).val, to(qm).val, -(depth * depth))
+                        end
                     end
+                    break
                 end
-                break
             end
         end
 
         is_quiet && push!(searched_quiets, m)
     end
 
-    !search_stopped[] && store_tt(b.key, depth, α, flag, best_move, ply)
-    return α
+    !search_stopped[] && store_tt(b.key, depth, best_score, flag, best_move, ply)
+    return best_score
 end
 
 function search(b::Board, max_depth::Int, time_limit::Int)::Move
