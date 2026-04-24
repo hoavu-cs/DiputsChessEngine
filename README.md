@@ -1,2 +1,2 @@
 # diputs-chess-engine
-A chess engine written in julia for fun
+A trolling chess engine written in Julia with some element of vibecoding.
