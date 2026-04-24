@@ -107,6 +107,20 @@ end
 
 init_lmr_table!()
 
+const MAX_HISTORY = 16384
+
+history = zeros(Int, 2, 64, 64)
+
+function clear_history()
+    fill!(history, 0)
+end
+
+function update_history!(color::Int, from_sq::Int, to_sq::Int, bonus::Int)
+    clamped = clamp(bonus, -MAX_HISTORY, MAX_HISTORY)
+    @inbounds history[color, from_sq, to_sq] +=
+        clamped - history[color, from_sq, to_sq] * abs(clamped) ÷ MAX_HISTORY
+end
+
 search_deadline = Ref{UInt64}(typemax(UInt64))
 
 # Move ordering scores
@@ -129,7 +143,8 @@ function score_move(b::Board, m::Move, tt_move::Move)::Int
         return _SCORE_CAPTURE + _QS_PIECE_VAL[victim] * 10 - attacker
     end
 
-    return 0
+    color = sidetomove(b) == WHITE ? 1 : 2
+    return history[color, from(m).val, to(m).val]
 end
 
 function quiescence(b::Board, α::Int, β::Int, ply::Int, node_count::Ref{Int}, key_history::Vector{UInt64})::Int
@@ -214,7 +229,7 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, pv::Vector{Mo
         eval ≥ β + margin && return eval
     end
 
-    # Null move pruning — skip if side to move has only king + pawns
+    # Null move pruning — skip if side to move has only king + pawns ~ 80 Elo
     if depth ≥ 6 && !in_check && static_eval(b) ≥ β
         has_piece = false
         side = sidetomove(b)
@@ -240,9 +255,13 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, pv::Vector{Mo
     best_move = Move(0)
     flag = TT_UPPER
 
+    stm = sidetomove(b) == WHITE ? 1 : 2
+    searched_quiets = Move[]
+
     for (i, m) in enumerate(ml)
         lmr = i > 3 && depth ≥ 3 && promotion(m) == PieceType(0) && m != tt_best
         is_capture = moveiscapture(b, m)
+        is_quiet = !is_capture && promotion(m) == PieceType(0)
 
         u  = domove!(b, m)
         push!(key_history, b.key)
@@ -276,8 +295,19 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, pv::Vector{Mo
             append!(pv, child_pv)
             flag = TT_EXACT
 
-            α ≥ β && (flag = TT_LOWER; break)
+            if α ≥ β
+                flag = TT_LOWER
+                if is_quiet
+                    update_history!(stm, from(m).val, to(m).val, depth * depth)
+                    for qm in searched_quiets
+                        update_history!(stm, from(qm).val, to(qm).val, -(depth * depth))
+                    end
+                end
+                break
+            end
         end
+
+        is_quiet && push!(searched_quiets, m)
     end
 
     !search_stopped[] && store_tt(b.key, depth, α, flag, best_move, ply)
@@ -285,6 +315,10 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, pv::Vector{Mo
 end
 
 function search(b::Board, max_depth::Int, time_limit::Int)::Move
+    @inbounds for i in eachindex(history)
+        history[i] >>= 1; # decay history
+    end 
+
     start_ns  = time_ns()
     if time_limit ≥ typemax(Int) >> 20
         deadline = start_ns + 30_000_000_000 # 30 seconds if time limit is not set
