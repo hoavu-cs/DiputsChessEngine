@@ -7,8 +7,14 @@ I have 1 week to work on this project (mostly to rehash my Julia) and then I wil
 
 - [Julia](https://julialang.org/downloads/) 1.9+
 
-## Running
+## Setup (one time)
 
+```bash
+julia --project=. -e 'import Pkg; Pkg.instantiate()'
+```
+
+## Running
+One time set up to resolve dependencies. 
 ```bash
 julia --project=. uci.jl
 ```
