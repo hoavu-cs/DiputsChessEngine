@@ -1,4 +1,4 @@
-# evaluation.jl — PeSTO tapered eval; include from uci.jl (after `using Chess`)
+# pesto.jl — PeSTO tapered eval (archived, replaced by NNUE)
 
 const _MG_VAL = (82, 337, 365, 477, 1025, 0)
 const _EG_VAL = (94, 281, 297, 512,  936, 0)
