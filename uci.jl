@@ -33,6 +33,7 @@ function process_position(command::String)
         global board = startboard()
         idx += 1
     elseif tokens[idx] == "fen"
+        # Collect FEN tokens until we hit "moves" or end of command
         fen_parts = String[]
         idx += 1
         while idx <= length(tokens) && tokens[idx] != "moves"
@@ -92,6 +93,7 @@ function process_option(tokens::Vector{String})
 end
 
 include("evaluation.jl")
+include("nnue.jl")
 include("search.jl")
 
 """
@@ -232,6 +234,7 @@ function uci_loop()
             elseif line == "ucinewgame"
                 global board = startboard()
                 clear_tt()
+                clear_history()
             elseif startswith(line, "position")
                 process_position(line)
             elseif startswith(line, "setoption")

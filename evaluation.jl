@@ -1,7 +1,5 @@
 # evaluation.jl — PeSTO tapered eval; include from uci.jl (after `using Chess`)
 
-# ── raw PST data: row-major, rank 8 first, 64 entries each (0-based in spirit) ─
-
 const _MG_VAL = (82, 337, 365, 477, 1025, 0)
 const _EG_VAL = (94, 281, 297, 512,  936, 0)
 
@@ -126,7 +124,6 @@ const _EG_KING = (
     -53, -34, -21, -11, -28, -14, -24, -43,
 )
 
-# ── Square index remap ──────────────────────────────────────────────────────────
 # Chess.jl sq.val is 1-indexed, column-major (file A=vals 1-8, file B=9-16, ...),
 # rank 8 first within each file.
 # PeSTO tables are row-major, rank 8 first (index 0 = A8, 7 = H8, 8 = A7, ...).
@@ -142,7 +139,6 @@ const _B_IDX = ntuple(Val(64)) do v
     (7 - (v0 & 7)) * 8 + (v0 >> 3) + 1   # rank-flipped, 1-based
 end
 
-# ── Combined (value + PST) tables ──────────────────────────────────────────────
 # _MG[pt, sq]: pt = PieceType.val (1=PAWN .. 6=KING), sq = 1-based PeSTO index
 
 const _MG, _EG = let
@@ -164,8 +160,6 @@ end
 const _GP_INC = (0, 1, 1, 2, 4, 0)
 
 const _PIECE_ORDER = (PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING)
-
-# ── Evaluation ─────────────────────────────────────────────────────────────────
 
 function static_eval(b::Board)::Int
     mg_w, mg_b = 0, 0

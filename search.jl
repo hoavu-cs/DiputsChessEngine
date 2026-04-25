@@ -7,8 +7,6 @@ const MATE_SCORE =  9_000_000
 # Simple piece-type value for MVV-LVA (PAWN=1..KING=6 matches PieceType.val)
 const _QS_PIECE_VAL = (100, 300, 300, 500, 900, 20000)
 
-# ── Transposition Table ──────────────────────────────────────────────────────────
-
 const TT_EXACT   = Int8(0)
 const TT_LOWER   = Int8(1)
 const TT_UPPER   = Int8(2)
@@ -49,7 +47,7 @@ function resize_tt(mb::Int)
     fill!(tt, TT_ENTRY_NULL)
 end
 
-function probe_tt(key::UInt64, depth::Int, α::Int, β::Int, ply::Int)
+@inline function probe_tt(key::UInt64, depth::Int, α::Int, β::Int, ply::Int)
     idx = Int(key & tt_mask) + 1
     entry = tt[idx]
     if entry.flag != TT_EMPTY && entry.key == key
@@ -57,12 +55,11 @@ function probe_tt(key::UInt64, depth::Int, α::Int, β::Int, ply::Int)
         if abs(score) > MATE_SCORE - TT_MAX_PLY
             score += score > 0 ? -ply : ply
         end
-        
         if entry.depth ≥ depth
-            if entry.flag == TT_EXACT # exact flag, used as-is
+            if entry.flag == TT_EXACT
                 return (true, score, entry.best)
             end
-            if entry.flag == TT_LOWER # lower bound, raise α
+            if entry.flag == TT_LOWER
                 α = max(α, score)
             elseif entry.flag == TT_UPPER
                 β = min(β, score)
@@ -71,11 +68,10 @@ function probe_tt(key::UInt64, depth::Int, α::Int, β::Int, ply::Int)
         end
         return (false, 0, entry.best)
     end
-
     return (false, 0, Move(0))
 end
 
-function store_tt(key::UInt64, depth::Int, score::Int, flag::Int8, best::Move, ply::Int)
+@inline function store_tt(key::UInt64, depth::Int, score::Int, flag::Int8, best::Move, ply::Int)
     idx = Int(key & tt_mask) + 1
     entry = tt[idx]
     if entry.flag == TT_EMPTY || depth ≥ entry.depth
@@ -89,8 +85,6 @@ end
 
 init_tt()
 
-# ── LMR Table ─────────────────────────────────────────────────────────────────────
-
 const LMR_DEPTH_MAX = 99
 const LMR_MOVES_MAX = 256
 
@@ -99,7 +93,7 @@ const LMR_TABLE = zeros(Int, LMR_DEPTH_MAX, LMR_MOVES_MAX)
 function init_lmr_table!()
     for d in 1:LMR_DEPTH_MAX
         for i in 1:LMR_MOVES_MAX
-            R = 0.99 + log(d) * log(i) / 3
+            R = 1 + log(d) * log(i) / 3
             LMR_TABLE[d, i] = clamp(round(Int, R), 1, d - 1)
         end
     end
@@ -107,15 +101,19 @@ end
 
 init_lmr_table!()
 
+const nnue_net = load_nnue(joinpath(@__DIR__, "..", "nnue_hl_1024.bin"))
+const nnue_acc = Accumulator()
+
 const MAX_HISTORY = 16384
 
-history = zeros(Int, 2, 64, 64)
+history    = zeros(Int, 2, 64, 64)
+eval_stack = zeros(Int, 256)
 
 function clear_history()
     fill!(history, 0)
 end
 
-function update_history!(color::Int, from_sq::Int, to_sq::Int, bonus::Int)
+@inline function update_history!(color::Int, from_sq::Int, to_sq::Int, bonus::Int)
     clamped = clamp(bonus, -MAX_HISTORY, MAX_HISTORY)
     @inbounds history[color, from_sq, to_sq] +=
         clamped - history[color, from_sq, to_sq] * abs(clamped) ÷ MAX_HISTORY
@@ -128,7 +126,7 @@ const _SCORE_HASH     = 1_000_000
 const _SCORE_PROMO    =   900_000
 const _SCORE_CAPTURE  =   100_000
 
-function score_move(b::Board, m::Move, tt_move::Move)::Int
+@inline function score_move(b::Board, m::Move, tt_move::Move)::Int
     m == tt_move && return _SCORE_HASH
 
     promo = promotion(m)
@@ -162,7 +160,7 @@ function quiescence(b::Board, α::Int, β::Int, ply::Int, node_count::Ref{Int}, 
     end
     isstalemate(b) && return 0
 
-    stand_pat = static_eval(b)
+    stand_pat = nnue_eval(nnue_acc, b, nnue_net)
     stand_pat ≥ β && return stand_pat
     α = max(α, stand_pat)
 
@@ -175,11 +173,13 @@ function quiescence(b::Board, α::Int, β::Int, ply::Int, node_count::Ref{Int}, 
     for m in captures
         search_stopped[] && break
 
+        update!(nnue_acc, b, m, nnue_net)
         u  = domove!(b, m)
         push!(key_history, b.key)
         sc = -quiescence(b, -β, -α, ply + 1, node_count, key_history)
         pop!(key_history)
         undomove!(b, u)
+        undo_update!(nnue_acc, b, m, nnue_net)
 
         best  = max(best, sc)
         α = max(α, sc)
@@ -213,8 +213,10 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, pv::Vector{Mo
         return ischeck(b) ? -(MATE_SCORE - ply) : 0
     end
 
+    in_check = ischeck(b)
+
     if depth == 0
-        if !ischeck(b)
+        if !in_check
             empty!(pv)
             return quiescence(b, α, β, ply, node_count, key_history)
         end
@@ -224,16 +226,17 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, pv::Vector{Mo
     hit, tt_score, tt_best = probe_tt(b.key, depth, α, β, ply)
     hit && return tt_score
 
+    eval = nnue_eval(nnue_acc, b, nnue_net)
+    eval_stack[ply] = eval
+    improving = !in_check && ply >= 3 && eval > eval_stack[ply - 2]
+
     # Reverse futility pruning ~ 280 Elo
-    in_check = ischeck(b)
-    if depth ≤ 3 && !in_check
-        eval = static_eval(b)
-        margin = 150 * depth
-        eval ≥ β + margin && return eval
+    if depth ≤ 6 && !in_check
+        eval ≥ β + (175 * depth - 25 * improving) && return div(eval + β, 2)
     end
 
     # Null move pruning — skip if side to move has only king + pawns ~ 80 Elo
-    if depth ≥ 6 && !in_check && static_eval(b) ≥ β
+    if depth ≥ 3 && !in_check && eval ≥ β
         has_piece = false
         side = sidetomove(b)
         for pt in (QUEEN, ROOK, BISHOP, KNIGHT)
@@ -244,7 +247,7 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, pv::Vector{Mo
             has_piece && break
         end
         if has_piece
-            R = 3 + div(depth, 4)
+            R = min(4 + div(depth, 3) + min(div(eval - β, 200), 3), depth - 1)
             u = donullmove!(b)
             sc = -negamax(b, depth - 1 - R, -β, -β + 1, ply + 1, Move[], node_count, key_history)
             undomove!(b, u)
@@ -267,29 +270,28 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, pv::Vector{Mo
         is_capture = moveiscapture(b, m)
         is_quiet = !is_capture && promotion(m) == PieceType(0)
 
+        update!(nnue_acc, b, m, nnue_net)
         u  = domove!(b, m)
         push!(key_history, b.key)
 
-        if lmr
-            R = LMR_TABLE[depth, min(i, LMR_MOVES_MAX)]
-            ischeck(b) && (R = max(1, R - 1))
-            is_capture && (R = max(1, R - 1))
-            R = min(R, depth - 1)
+        R = lmr ? begin
+            r = LMR_TABLE[depth, min(i, LMR_MOVES_MAX)]
+            ischeck(b) && (r = max(1, r - 1))
+            is_capture && (r = max(1, r - 1))
+            min(r, depth - 1)
+        end : 0
 
-            empty!(child_pv)
-            sc = -negamax(b, depth - 1 - R, -β, -α, ply + 1, child_pv, node_count, key_history)
+        empty!(child_pv)
+        sc = -negamax(b, depth - 1 - R, -β, -α, ply + 1, child_pv, node_count, key_history)
 
-            if sc > α
-                empty!(child_pv)
-                sc = -negamax(b, depth - 1, -β, -α, ply + 1, child_pv, node_count, key_history)
-            end
-        else
+        if R > 0 && sc > α
             empty!(child_pv)
             sc = -negamax(b, depth - 1, -β, -α, ply + 1, child_pv, node_count, key_history)
         end
 
         pop!(key_history)
         undomove!(b, u)
+        undo_update!(nnue_acc, b, m, nnue_net)
 
         if sc > best_score
             best_score = sc
@@ -325,7 +327,8 @@ end
 function search(b::Board, max_depth::Int, time_limit::Int)::Move
     @inbounds for i in eachindex(history)
         history[i] >>= 1; # decay history
-    end 
+    end
+    refresh!(nnue_acc, b, nnue_net)
 
     start_ns  = time_ns()
     if time_limit ≥ typemax(Int) >> 20
@@ -335,7 +338,7 @@ function search(b::Board, max_depth::Int, time_limit::Int)::Move
     end
 
     best_move   = Move(0)
-    ml          = moves(b)
+    ml          = collect(moves(b))
     node_count  = Ref(0)
     key_history = copy(game_key_history)
     isempty(ml) && return best_move
@@ -344,20 +347,21 @@ function search(b::Board, max_depth::Int, time_limit::Int)::Move
     for depth in 1:max_depth
         search_stopped[] && break
 
-        α = -INF
+        α          = -INF
         depth_best = Move(0)
-        pv = Move[]
-        child_pv = Move[]
+        pv         = Move[]
+        child_pv   = Move[]
 
         for m in ml
             search_stopped[] && break
-
             empty!(child_pv)
+            update!(nnue_acc, b, m, nnue_net)
             u  = domove!(b, m)
             push!(key_history, b.key)
             sc = -negamax(b, depth - 1, -INF, -α, 1, child_pv, node_count, key_history)
             pop!(key_history)
             undomove!(b, u)
+            undo_update!(nnue_acc, b, m, nnue_net)
 
             if sc > α
                 α = sc
