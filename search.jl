@@ -73,14 +73,11 @@ end
 
 @inline function store_tt(key::UInt64, depth::Int, score::Int, flag::Int8, best::Move, ply::Int)
     idx = Int(key & tt_mask) + 1
-    entry = tt[idx]
-    if entry.flag == TT_EMPTY || depth ≥ entry.depth
-        stored = score
-        if abs(score) > MATE_SCORE - TT_MAX_PLY
-            stored = score + (score > 0 ? ply : -ply)
-        end
-        tt[idx] = TTEntry(key, Int32(depth), Int32(stored), flag, best)
+    stored = score
+    if abs(score) > MATE_SCORE - TT_MAX_PLY
+        stored = score + (score > 0 ? ply : -ply)
     end
+    tt[idx] = TTEntry(key, Int32(depth), Int32(stored), flag, best)
 end
 
 init_tt()
