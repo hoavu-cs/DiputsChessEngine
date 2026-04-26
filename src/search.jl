@@ -99,9 +99,11 @@ const MAX_HISTORY = 16384
 
 history    = zeros(Int, 2, 64, 64)
 eval_stack = zeros(Int, 256)
+killers    = fill(Move(0), 2, 256)
 
 function clear_history()
     fill!(history, 0)
+    fill!(killers, Move(0))
 end
 
 @inline function update_history!(color::Int, from_sq::Int, to_sq::Int, bonus::Int)
@@ -116,8 +118,9 @@ search_deadline = Ref{UInt64}(typemax(UInt64))
 const _SCORE_HASH     = 1_000_000
 const _SCORE_PROMO    =   900_000
 const _SCORE_CAPTURE  =   100_000
+const _SCORE_KILLER   =    90_000
 
-@inline function score_move(b::Board, m::Move, tt_move::Move)::Int
+@inline function score_move(b::Board, m::Move, tt_move::Move, k1::Move, k2::Move)::Int
     m == tt_move && return _SCORE_HASH
 
     promo = promotion(m)
@@ -131,6 +134,9 @@ const _SCORE_CAPTURE  =   100_000
         attacker = ptype(pieceon(b, from(m))).val
         return _SCORE_CAPTURE + _QS_PIECE_VAL[victim] * 10 - attacker
     end
+
+    m == k1 && return _SCORE_KILLER
+    m == k2 && return _SCORE_KILLER - 1
 
     color = sidetomove(b) == WHITE ? 1 : 2
     return history[color, from(m).val, to(m).val]
@@ -158,7 +164,7 @@ function quiescence(b::Board, α::Int, β::Int, ply::Int, node_count::Ref{Int}, 
     captures = filter(m -> moveiscapture(b, m), moves(b))
     isempty(captures) && return α
 
-    sort!(captures, by = m -> score_move(b, m, Move(0)), rev = true)
+    sort!(captures, by = m -> score_move(b, m, Move(0), Move(0), Move(0)), rev = true)
 
     best = stand_pat
     for m in captures
@@ -257,7 +263,9 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, pv::Vector{Mo
         end
     end
 
-    sort!(ml, by = m -> score_move(b, m, tt_best), rev = true)
+    k1 = ply ≤ 256 ? killers[1, ply] : Move(0)
+    k2 = ply ≤ 256 ? killers[2, ply] : Move(0)
+    sort!(ml, by = m -> score_move(b, m, tt_best, k1, k2), rev = true)
 
     child_pv = Move[]
     best_score = -INF
@@ -304,6 +312,10 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, pv::Vector{Mo
                 if α ≥ β
                     flag = TT_LOWER
                     if is_quiet
+                        if ply ≤ 256
+                            killers[2, ply] = killers[1, ply]
+                            killers[1, ply] = m
+                        end
                         update_history!(stm, from(m).val, to(m).val, depth * depth)
                         for qm in searched_quiets
                             update_history!(stm, from(qm).val, to(qm).val, -(depth * depth))
@@ -325,6 +337,7 @@ function search(b::Board, max_depth::Int, time_limit::Int)::Move
     @inbounds for i in eachindex(history)
         history[i] >>= 1; # decay history
     end
+    fill!(killers, Move(0))
     refresh!(nnue_acc, b, nnue_net)
 
     start_ns  = time_ns()
