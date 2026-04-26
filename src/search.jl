@@ -276,7 +276,7 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, pv::Vector{Mo
     searched_quiets = Move[]
 
     for (i, m) in enumerate(ml)
-        lmr = i > 3 && depth ≥ 3 && promotion(m) == PieceType(0) && m != tt_best
+        lmr = i > 2 && depth ≥ 3 && promotion(m) == PieceType(0) 
         is_capture = moveiscapture(b, m)
         is_quiet = !is_capture && promotion(m) == PieceType(0)
 
@@ -362,14 +362,15 @@ function search(b::Board, max_depth::Int, time_limit::Int)::Move
         pv         = Move[]
         child_pv   = Move[]
 
-        stm = sidetomove(b) == WHITE ? 1 : 2
-        sort!(ml, by = m -> m == best_move ? _SCORE_HASH : history[stm, from(m).val, to(m).val], rev = true)
+        k1 = killers[1, 1]
+        k2 = killers[2, 1]
+        sort!(ml, by = m -> score_move(b, m, best_move, k1, k2), rev = true)
 
         for (i, m) in enumerate(ml)
             search_stopped[] && break
             empty!(child_pv)
 
-            lmr = i > 1 && depth ≥ 3 && promotion(m) == PieceType(0) && !moveiscapture(b, m) && m != best_move
+            lmr = i > 2 && depth ≥ 3 && promotion(m) == PieceType(0) 
 
             update!(nnue_acc, b, m, nnue_net)
             u  = domove!(b, m)
@@ -377,7 +378,7 @@ function search(b::Board, max_depth::Int, time_limit::Int)::Move
 
             R = lmr ? lmr_reduction(depth, i, ischeck(b), false) : 0
 
-            sc = -negamax(b, depth - 1 - R, -INF, -α, 1, Move[], node_count, key_history)
+            sc = -negamax(b, depth - 1 - R, -INF, -α, 1, child_pv, node_count, key_history)
             if R > 0 && sc > α
                 empty!(child_pv)
                 sc = -negamax(b, depth - 1, -INF, -α, 1, child_pv, node_count, key_history)
