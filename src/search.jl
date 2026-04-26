@@ -85,6 +85,13 @@ end
 
 init_lmr_table!()
 
+@inline function lmr_reduction(depth::Int, i::Int, in_check::Bool, is_capture::Bool)::Int
+    r = LMR_TABLE[depth, min(i, LMR_MOVES_MAX)]
+    in_check   && (r = max(1, r - 1))
+    is_capture && (r = max(1, r - 1))
+    return min(r, depth - 1)
+end
+
 const nnue_net = load_nnue(joinpath(@__DIR__, "nnue_hl_1024.bin"))
 const nnue_acc = Accumulator()
 
@@ -269,12 +276,7 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, pv::Vector{Mo
         u  = domove!(b, m)
         push!(key_history, b.key)
 
-        R = lmr ? begin
-            r = LMR_TABLE[depth, min(i, LMR_MOVES_MAX)]
-            ischeck(b) && (r = max(1, r - 1))
-            is_capture && (r = max(1, r - 1))
-            min(r, depth - 1)
-        end : 0
+        R = lmr ? lmr_reduction(depth, i, ischeck(b), is_capture) : 0
 
         empty!(child_pv)
         sc = -negamax(b, depth - 1 - R, -β, -α, ply + 1, child_pv, node_count, key_history)
@@ -355,13 +357,13 @@ function search(b::Board, max_depth::Int, time_limit::Int)::Move
             empty!(child_pv)
 
             lmr = i > 1 && depth ≥ 3 && promotion(m) == PieceType(0) && !moveiscapture(b, m) && m != best_move
-            R = lmr ? min(1, depth - 1) : 0
 
             update!(nnue_acc, b, m, nnue_net)
             u  = domove!(b, m)
             push!(key_history, b.key)
 
-            
+            R = lmr ? lmr_reduction(depth, i, ischeck(b), false) : 0
+
             sc = -negamax(b, depth - 1 - R, -INF, -α, 1, Move[], node_count, key_history)
             if R > 0 && sc > α
                 empty!(child_pv)
