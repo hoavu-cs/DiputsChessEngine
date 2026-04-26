@@ -233,6 +233,9 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, pv::Vector{Mo
         α ≥ β && return tt_score
     end
 
+    # IIR — no hash move at sufficient depth, reduce by 1
+    depth -= (tt_best == Move(0) && depth ≥ 4) ? 1 : 0
+
     eval = nnue_eval(nnue_acc, b, nnue_net)
 
     eval_stack[ply] = eval
