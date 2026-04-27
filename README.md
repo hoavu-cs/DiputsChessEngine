@@ -4,7 +4,7 @@ A non-competitive troll chess engine written in Julia with some vibecoding.
 I have 1 week to work on this project (mostly to rehash my Julia) and then I will stop (most likely).
 
 ## Strength
-Commit c400cf9 against Stash 27 (~3050), 40/5.
+Commit c400cf9 against Stash 27 (~3050), 40/5. UHO_Lichess_4852_v1.epd.
 ```
 Score of diputs.sh vs stash-27.0-linux-64: 28 - 19 - 13 [0.575]
 ...      diputs.sh playing White: 21 - 3 - 6  [0.800] 30
