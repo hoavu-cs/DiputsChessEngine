@@ -46,7 +46,7 @@ quit
 
 ## Adding to a GUI
 
-Point your UCI-compatible GUI (Arena, cutechess, fastchess, etc.) to the wrapper script:
+Point your UCI-compatible GUI (Arena, Cutechess, En Croissant, Nibbler etc.) to the wrapper script:
 
 ```
 diputs.sh
