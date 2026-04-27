@@ -1,7 +1,7 @@
 # diputs-chess-engine
 
 A non-competitive troll chess engine written in Julia with some vibecoding.
-I have 1 week to work on this project (mostly to rehash my Julia) and then I will stop (most likely).
+I have ~~1 week~~ 2 weeks to work on this project (mostly to rehash my Julia) and then I will stop (most likely).
 
 ## Strength
 Commit c400cf9 against Stash 27 (~3050), 40/5. UHO_Lichess_4852_v1.epd.
