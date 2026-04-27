@@ -1,5 +1,26 @@
 === SPRT Results Log ===
 
+32505de — 1-ply continuation history and fix type instability issue
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (15+0.15, 4t, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 47.43 +/- 21.19, nElo: 77.47 +/- 34.13
+LOS: 100.00 %, DrawRatio: 47.24 %, PairsRatio: 2.50
+Games: 398, Wins: 134, Losses: 80, Draws: 184, Points: 226.0 (56.78 %)
+Ptnml(0-2): [5, 25, 94, 61, 14], WL/DD Ratio: 0.92
+LLR: 2.21 (100.7%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
+d032877 — Add castling and en passant efficient update.
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (15+0.15, 4t, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 32.03 +/- 17.76, nElo: 49.66 +/- 27.35
+LOS: 99.98 %, DrawRatio: 42.90 %, PairsRatio: 1.77
+Games: 620, Wins: 199, Losses: 142, Draws: 279, Points: 338.5 (54.60 %)
+Ptnml(0-2): [11, 53, 133, 94, 19], WL/DD Ratio: 1.02
+LLR: 2.22 (100.9%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
+
 a07c87f — Fix a few consistency issues. Fix crippled PV.
 --------------------------------------------------
 Results of DIPUTEXP vs Diputs (10+0.1, 4t, 256MB, UHO_Lichess_4852_v1.epd):
