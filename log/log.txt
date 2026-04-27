@@ -1,7 +1,15 @@
 === SPRT Results Log ===
 
 6463f5f — Use insertion sort. Avoid some memory allocation.
-No SPRT results — small refactor of move ordering.
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (15+0.15, 4t, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 31.87 +/- 17.73, nElo: 48.94 +/- 27.04
+LOS: 99.98 %, DrawRatio: 41.64 %, PairsRatio: 1.68
+Games: 634, Wins: 206, Losses: 148, Draws: 280, Points: 346.0 (54.57 %)
+Ptnml(0-2): [10, 59, 132, 95, 21], WL/DD Ratio: 1.10
+LLR: 2.25 (102.4%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
 
 aab9390 — Further optimize type instability.
 --------------------------------------------------
