@@ -55,7 +55,7 @@ end
 @inline function probe_tt(key::UInt64, depth::Int, ply::Int)
     idx = Int(key & tt_mask) + 1
     entry = tt[idx]
-    (entry.flag == TT_EMPTY || entry.key != key) && return (false, 0, TT_EMPTY, Move(0))
+    (entry.flag == TT_EMPTY || entry.key ≠ key) && return (false, 0, TT_EMPTY, Move(0))
     score = entry.score
     if abs(score) > MATE_SCORE - TT_MAX_PLY
         score += score > 0 ? -ply : ply
@@ -170,7 +170,7 @@ const _MOVE_SCORES = zeros(Int, 256, 256) # [ply, move_index]
     m == tt_move && return _SCORE_HASH
 
     promo = promotion(m)
-    if promo != PieceType(0)
+    if promo ≠ PieceType(0)
         return _SCORE_PROMO + promo.val
     end
 
@@ -203,7 +203,7 @@ function sort_moves!(b::Board, ml::Vector{Move}, ply::Int, tt_best::Move, k1::Mo
         tmp_m = ml[i]
         tmp_s = scores[i]
         j = i - 1
-        while j >= 1 && scores[j] < tmp_s
+        while j ≥ 1 && scores[j] < tmp_s
             ml[j+1] = ml[j]
             scores[j+1] = scores[j]
             j -= 1
@@ -272,7 +272,7 @@ end
     Negamax
 __________________________________________________"""
 
-function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, pv::Vector{Move}, node_count::Ref{Int}, key_history::Vector{UInt64})::Int
+function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, node_count::Ref{Int}, key_history::Vector{UInt64})::Int
     node_count[] += 1
     if search_stopped[]
         return 0
@@ -294,7 +294,6 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, pv::Vector{Mo
 
     # Terminal node: checkmate or stalemate
     if isempty(ml)
-        empty!(pv)
         return ischeck(b) ? -(MATE_SCORE - ply) : 0
     end
 
@@ -303,7 +302,6 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, pv::Vector{Mo
     # Check extension: don't drop into QS while in check
     if depth == 0
         if !in_check
-            empty!(pv)
             return quiescence(b, α, β, ply, node_count, key_history)
         end
         depth = 1
@@ -327,7 +325,7 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, pv::Vector{Mo
 
     eval = nnue_eval(nnue_acc, b, nnue_net)
     eval_stack[ply] = eval
-    improving = !in_check && ply >= 3 && eval > eval_stack[ply - 2]
+    improving = !in_check && ply ≥ 3 && eval > eval_stack[ply - 2]
 
     # Reverse futility pruning
     if depth ≤ 6 && !in_check
@@ -349,7 +347,7 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, pv::Vector{Mo
             R = min(4 + div(depth, 3) + min(div(eval - β, 200), 3), depth - 1)
             u = donullmove!(b)
             move_stack[ply + 1] = (0, 0)
-            sc = -negamax(b, depth - 1 - R, -β, -β + 1, ply + 1, Move[], node_count, key_history)
+            sc = -negamax(b, depth - 1 - R, -β, -β + 1, ply + 1, node_count, key_history)
             undomove!(b, u)
             sc ≥ β && return sc
         end
@@ -364,7 +362,6 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, pv::Vector{Mo
 
     sort_moves!(b, ml, ply, tt_best, k1, k2, prev_pt, prev_to, prev2_pt, prev2_to)
 
-    child_pv = Move[]
     best_score = -INF
     best_move = Move(0)
     flag = TT_UPPER
@@ -388,13 +385,11 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, pv::Vector{Mo
 
         R = lmr ? lmr_reduction(depth, i, ischeck(b), is_capture) : 0
 
-        empty!(child_pv)
-        sc = -negamax(b, depth - 1 - R, -β, -α, ply + 1, child_pv, node_count, key_history)
+        sc = -negamax(b, depth - 1 - R, -β, -α, ply + 1, node_count, key_history)
 
         # LMR re-search at full depth if the reduced search raised α
         if R > 0 && sc > α
-            empty!(child_pv)
-            sc = -negamax(b, depth - 1, -β, -α, ply + 1, child_pv, node_count, key_history)
+            sc = -negamax(b, depth - 1, -β, -α, ply + 1, node_count, key_history)
         end
 
         pop!(key_history)
@@ -407,9 +402,6 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, pv::Vector{Mo
 
             if sc > α
                 α = sc
-                empty!(pv)
-                push!(pv, m)
-                append!(pv, child_pv)
                 flag = TT_EXACT
 
                 if α ≥ β
@@ -441,6 +433,31 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, pv::Vector{Mo
     return best_score
 end
 
+
+function extract_pv_from_tt(root::Board, max_len::Int, key_history::Vector{UInt64})::Vector{Move}
+    pv      = Move[]
+    bd      = deepcopy(root)
+    pv_keys = copy(key_history)
+    for _ in 1:max_len
+        cnt = 0
+
+         # check for 3-fold repetition in PV extraction
+        for k in pv_keys
+            k == bd.key && (cnt += 1)
+            cnt ≥ 2 && break
+        end
+        cnt ≥ 2 && break
+        
+        _, _, _, tt_move = probe_tt(bd.key, 0, 0)
+        tt_move == Move(0) && break
+        tt_move ∈ moves(bd) || break
+        push!(pv, tt_move)
+        push!(pv_keys, bd.key)
+        domove!(bd, tt_move)
+        isdraw(bd) && break
+    end
+    return pv
+end
 
 """__________________________________________________
 
@@ -484,8 +501,6 @@ function search(b::Board, max_depth::Int, time_limit::Int)::Move
         asp_β      = depth ≥ 6 ? prev_score + window :  INF
         depth_best = Move(0)
         best_score = prev_score
-        pv         = Move[]
-        child_pv   = Move[]
 
         k1 = killers[1, 1]
         k2 = killers[2, 1]
@@ -495,11 +510,9 @@ function search(b::Board, max_depth::Int, time_limit::Int)::Move
             search_stopped[] && break
             α         = asp_α
             iter_best = Move(0)
-            empty!(pv)
 
             for (i, m) in enumerate(ml)
                 search_stopped[] && break
-                empty!(child_pv)
 
                 lmr = i > 2 && depth ≥ 3 && promotion(m) == PieceType(0)
 
@@ -510,10 +523,9 @@ function search(b::Board, max_depth::Int, time_limit::Int)::Move
                 move_stack[1] = (cur_pt, to(m).val)
 
                 R = lmr ? lmr_reduction(depth, i, ischeck(b), false) : 0
-                sc = -negamax(b, depth - 1 - R, -asp_β, -α, 1, child_pv, node_count, key_history)
+                sc = -negamax(b, depth - 1 - R, -asp_β, -α, 1, node_count, key_history)
                 if R > 0 && sc > α
-                    empty!(child_pv)
-                    sc = -negamax(b, depth - 1, -asp_β, -α, 1, child_pv, node_count, key_history)
+                    sc = -negamax(b, depth - 1, -asp_β, -α, 1, node_count, key_history)
                 end
 
                 pop!(key_history)
@@ -523,9 +535,6 @@ function search(b::Board, max_depth::Int, time_limit::Int)::Move
                 if sc > α
                     α = sc
                     iter_best = m
-                    empty!(pv)
-                    push!(pv, m)
-                    append!(pv, child_pv)
                     α ≥ asp_β && break
                 end
             end
@@ -534,11 +543,11 @@ function search(b::Board, max_depth::Int, time_limit::Int)::Move
 
             if α ≤ asp_α
                 window *= 2
-                asp_α = window >= 200 ? -INF : max(asp_α - window, -INF)
+                asp_α = window ≥ 200 ? -INF : max(asp_α - window, -INF)
             elseif α ≥ asp_β
-                iter_best != Move(0) && (depth_best = iter_best; best_score = α)
+                iter_best ≠ Move(0) && (depth_best = iter_best; best_score = α)
                 window *= 2
-                asp_β = window >= 200 ?  INF : min(asp_β + window, INF)
+                asp_β = window ≥ 200 ?  INF : min(asp_β + window, INF)
             else
                 depth_best = iter_best
                 best_score = α
@@ -546,12 +555,13 @@ function search(b::Board, max_depth::Int, time_limit::Int)::Move
             end
         end
 
-        if !search_stopped[] && depth_best != Move(0)
+        if !search_stopped[] && depth_best ≠ Move(0)
             best_move  = depth_best
             prev_score = best_score
+            store_tt(b.key, depth, best_score, TT_EXACT, depth_best, 0)
             elapsed_ms = div(time_ns() - start_ns, 1_000_000)
             nps = elapsed_ms > 0 ? div(node_count[] * 1000, elapsed_ms) : 0
-            pv_str = join(tostring.(pv), " ")
+            pv_str = join(tostring.(extract_pv_from_tt(b, depth, key_history)), " ")
             println("info depth $depth score cp $best_score time $elapsed_ms nodes $(node_count[]) nps $nps pv $pv_str")
             flush(stdout)
         end
