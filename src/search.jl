@@ -119,7 +119,7 @@ const MAX_HISTORY = 16384
 const history    = zeros(Int, 2, 64, 64)
 const cont_hist  = zeros(Int16, 64, 7, 64, 7, 2)  # [cur_to, cur_pt, prev_to, prev_pt, stm]
 const cont_hist2 = zeros(Int16, 64, 7, 64, 7, 2)  # [cur_to, cur_pt, prev2_to, prev2_pt, stm]
-const eval_stack = zeros(Int, 256)
+const eval_stack = zeros(Int, 257)  # index = ply + 1; [1] = root
 const killers    = fill(Move(0), 2, 256)
 const move_stack = fill((0, 0), 256)
 
@@ -324,8 +324,13 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, node_count::R
     depth -= (tt_best == Move(0) && depth ≥ 4) ? 1 : 0
 
     eval = nnue_eval(nnue_acc, b, nnue_net)
-    eval_stack[ply] = eval
-    improving = !in_check && ply ≥ 3 && eval > eval_stack[ply - 2]
+    if tt_flag == TT_EXACT ||
+       (tt_flag == TT_LOWER && tt_score > eval) ||
+       (tt_flag == TT_UPPER && tt_score < eval)
+        eval = tt_score
+    end
+    eval_stack[ply + 1] = eval
+    improving = !in_check && ply ≥ 3 && eval > eval_stack[ply - 1]
 
     # Reverse futility pruning
     if depth ≤ 6 && !in_check
@@ -476,6 +481,7 @@ function search(b::Board, max_depth::Int, time_limit::Int)::Move
     end
     fill!(killers, Move(0))
     refresh!(nnue_acc, b, nnue_net)
+    eval_stack[1] = nnue_eval(nnue_acc, b, nnue_net)
 
     start_ns  = time_ns()
     if time_limit ≥ typemax(Int) >> 20
