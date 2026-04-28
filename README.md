@@ -4,16 +4,14 @@ A non-competitive troll UCI chess engine written in Julia with some vibecoding.
 I have ~~1 week~~ 2 weeks to work on this project to rehash Julia.
 Julia, like Python, is highly portable and easy on the eye.
 
+Requirements: [Julia](https://julialang.org/downloads/) 1.9+. Make sure to add it to your PATH.
+
 ## Strength
 Commit 82bfebb against Stash 27 (~3050), 3+2. UHO_Lichess_4852_v1.epd.
 ```
 Score of diputs.sh vs stash-27.0-linux-64: 63 - 17 - 26 [0.717]
 Elo difference: 161.5 +/- 62.3, LOS: 100.0 %, DrawRatio: 24.5 %
 ```
-
-## Requirements
-
-- [Julia](https://julialang.org/downloads/) 1.9+. Make sure to add it to your PATH.
 
 ## Setup (one time)
 
