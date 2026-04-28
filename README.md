@@ -1,6 +1,6 @@
 # Diputs Chess Engine
 
-A non-competitive troll UCI chess engine written in Julia with some vibecoding.
+A non-competitive UCI chess engine for trolling written in Julia.
 I have ~~1 week~~ 2 weeks to work on this project to rehash Julia.
 Julia, like Python, is highly portable and easy on the eye.
 
