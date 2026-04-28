@@ -9,7 +9,6 @@ Commit 82bfebb against Stash 27 (~3050), 3+2. UHO_Lichess_4852_v1.epd.
 ```
 Score of diputs.sh vs stash-27.0-linux-64: 63 - 17 - 26 [0.717]
 Elo difference: 161.5 +/- 62.3, LOS: 100.0 %, DrawRatio: 24.5 %
-SPRT: llr 0 (0.0%), lbound -inf, ubound inf
 ```
 
 ## Requirements
