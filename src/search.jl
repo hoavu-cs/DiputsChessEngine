@@ -357,7 +357,7 @@ function negamax(
     end
 
     # Internal iterative reduction
-    depth -= (tt_best == Move(0) && depth ≥ 4) ? 1 : 0
+    depth -= (tt_best == Move(0) && depth ≥ 3) ? 1 : 0
 
     # Adjust eval with TT score if available
     eval = nnue_eval(nnue_accs[tid], b, nnue_net)
@@ -370,7 +370,7 @@ function negamax(
     improving = !in_check && ply ≥ 3 && eval > eval_stack[ply - 1, tid]
 
     # Reverse futility pruning
-    if depth ≤ 6 && !in_check && !is_pv_node
+    if depth ≤ 8 && !in_check && !is_pv_node
         eval ≥ β + (175 * depth - 25 * improving) && return div(eval + β, 2)
     end
 
@@ -415,9 +415,14 @@ function negamax(
         cur_pt     = ptype(pieceon(b, from(m))).val
 
         # Late move pruning
-        if depth ≤ 3 && !in_check && is_quiet && !is_pv_node 
+        if depth ≤ 8 && !in_check && is_quiet && !is_pv_node
             length(searched_quiets) ≥ (5 + depth * depth) ÷ (2 - Int(improving)) && continue
         end
+
+        # Continuation history pruning
+        # if !is_pv_node && !in_check && is_quiet && prev_pt > 0
+        #     @inbounds Int(cont_hist[to(m).val, cur_pt, prev_to, prev_pt, stm, tid]) < -(MAX_HISTORY ÷ 4) * depth && continue
+        # end
 
         update!(nnue_accs[tid], b, m, nnue_net)
         u  = domove!(b, m)
