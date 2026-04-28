@@ -26,7 +26,7 @@ SPRT: llr 0 (0.0%), lbound -inf, ubound inf
 julia --project=. -e 'import Pkg; Pkg.instantiate()'
 ```
 
-## Running
+## Running using Julia Directly
 
 ```bash
 julia --project=. src/uci.jl
@@ -39,28 +39,49 @@ julia --project=. src/uci.jl
 uci
 isready
 position startpos
-go depth 6
+go depth 20
 ...
 quit
 ```
 
-## Adding to a GUI
+## Adding to a GUI using Wrapper Script
 
-Point your UCI-compatible GUI (Arena, Cutechess, En Croissant, Nibbler etc.) to the wrapper script:
-
+Point your UCI-compatible GUI (Arena, Cutechess, En Croissant, Nibbler etc.) to the wrapper script. For single-threaded version:
 ```
-diputs.sh
+diputs_1t.sh
 ```
 
 Make it executable first:
 
 ```bash
-chmod +x diputs.sh
+chmod +x diputs_1t.sh
 ```
 
 Or run directly from the terminal:
 
 ```bash
-bash diputs.sh
+bash diputs_1t.sh
 ```
 
+
+## SMP (multi-threaded)
+
+The thread count is fixed at Julia startup, to run with 1, 2, 4, or 8 threads, use: `diputs_1t.sh`, `diputs_2t.sh`, `diputs_4t.sh`, or `diputs_8t.sh` respectively. You can also create your own wrapper script with a custom thread count. Say you can create `diputs_16t.sh` with 16 threads like this:
+```bash
+#!/bin/bash
+DIR="$(cd "$(dirname "$0")" && pwd)"
+exec julia --threads=16 --project="$DIR" "$DIR/src/uci.jl"
+```
+
+make it executable, and then point your GUI to it. 
+
+2-threaded version gains around 50 Elo against the single-threaded version (based on testing). It is known that [lazy SMP](https://www.chessprogramming.org/Lazy_SMP) scales up to 8 cores and above.
+
+```
+Results of DIPUTEXP-SMP vs Diputs (10+0.1, NULL - 4t, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 51.52 +/- 23.51, nElo: 79.94 +/- 35.89
+LOS: 100.00 %, DrawRatio: 41.11 %, PairsRatio: 2.03
+Games: 360, Wins: 127, Losses: 74, Draws: 159, Points: 206.5 (57.36 %)
+Ptnml(0-2): [1, 34, 74, 53, 18], WL/DD Ratio: 1.06
+LLR: 2.24 (101.8%) (-2.20, 2.20) [0.00, 10.00]
+```
