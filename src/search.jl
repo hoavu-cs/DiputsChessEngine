@@ -3,6 +3,10 @@
 const INF        = 10_000_000
 const MATE_SCORE =  9_000_000
 
+abstract type NodeType end
+struct PVNode    <: NodeType end
+struct NonPVNode <: NodeType end
+
 const _N_THREADS = max(1, Threads.nthreads())
 const _NODE_COUNT   = fill(0, _N_THREADS)
 
@@ -25,10 +29,11 @@ struct TTEntry
     depth::Int32
     score::Int32
     flag::Int8
+    is_pv::Bool
     best::Move
 end
 
-const TT_ENTRY_NULL = TTEntry(0, -1, 0, TT_EMPTY, Move(0))
+const TT_ENTRY_NULL = TTEntry(0, -1, 0, TT_EMPTY, false, Move(0))
 
 tt::Vector{TTEntry}  = Vector{TTEntry}(undef, 1 << 22)
 tt_mask::UInt64      = UInt64((1 << 22) - 1)
@@ -57,21 +62,21 @@ end
 @inline function probe_tt(key::UInt64, depth::Int, ply::Int)
     idx   = Int(key & tt_mask) + 1
     entry = tt[idx]
-    (entry.flag == TT_EMPTY || entry.key ≠ key) && return (false, 0, TT_EMPTY, Move(0))
+    (entry.flag == TT_EMPTY || entry.key ≠ key) && return (false, 0, TT_EMPTY, false, Move(0))
     score = entry.score
     if abs(score) > MATE_SCORE - TT_MAX_PLY
         score += score > 0 ? -ply : ply
     end
-    return (entry.depth ≥ depth, score, entry.flag, entry.best)
+    return (entry.depth ≥ depth, score, entry.flag, entry.is_pv, entry.best)
 end
 
-@inline function store_tt(key::UInt64, depth::Int, score::Int, flag::Int8, best::Move, ply::Int)
+@inline function store_tt(key::UInt64, depth::Int, score::Int, flag::Int8, is_pv::Bool, best::Move, ply::Int)
     idx    = Int(key & tt_mask) + 1
     stored = score
     if abs(score) > MATE_SCORE - TT_MAX_PLY
         stored = score + (score > 0 ? ply : -ply)
     end
-    tt[idx] = TTEntry(key, Int32(depth), Int32(stored), flag, best)
+    tt[idx] = TTEntry(key, Int32(depth), Int32(stored), flag, is_pv, best)
 end
 
 init_tt()
@@ -96,10 +101,11 @@ end
 
 init_lmr_table!()
 
-@inline function lmr_reduction(depth::Int, i::Int, in_check::Bool, is_capture::Bool)::Int
+@inline function lmr_reduction(depth::Int, i::Int, in_check::Bool, is_capture::Bool, is_pv::Bool)::Int
     r = LMR_TABLE[depth, min(i, LMR_MOVES_MAX)]
     in_check   && (r = max(1, r - 1))
     is_capture && (r = max(1, r - 1))
+    !is_pv      && (r += 1)
     return min(r, depth - 1)
 end
 
@@ -194,7 +200,7 @@ const _SCORE_KILLER  =    90_000
 
     if moveiscapture(b, m)
         vt      = ptype(pieceon(b, to(m))).val
-        victim  = vt > 6 ? 1 : vt
+        victim  = clamp(vt, 1, 6)
         attacker = ptype(pieceon(b, from(m))).val
         return _SCORE_CAPTURE + _QS_PIECE_VAL[victim] * 10 - attacker
     end
@@ -296,7 +302,17 @@ end
     Negamax
 __________________________________________________"""
 
-function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, key_history::Vector{UInt64}, tid::Int)::Int
+function negamax(
+    ::Type{NT},
+    b::Board,
+    depth::Int,
+    α::Int,
+    β::Int,
+    ply::Int,
+    key_history::Vector{UInt64},
+    tid::Int,
+)::Int where {NT <: NodeType}
+
     _NODE_COUNT[tid] += 1
     search_stopped[] && return 0
     if time_ns() ≥ search_deadline[]
@@ -326,8 +342,10 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, key_history::
         depth = 1
     end
 
-    hit, tt_score, tt_flag, tt_best = probe_tt(b.key, depth, ply)
-    if hit
+    # TT look up for alpha-beta pruning
+    hit, tt_score, tt_flag, tt_is_pv, tt_best = probe_tt(b.key, depth, ply)
+    is_pv_node = (NT === PVNode) || tt_is_pv
+    if hit 
         if tt_flag == TT_EXACT
             return tt_score
         elseif tt_flag == TT_LOWER
@@ -338,8 +356,10 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, key_history::
         α ≥ β && return tt_score
     end
 
+    # Internal iterative reduction
     depth -= (tt_best == Move(0) && depth ≥ 4) ? 1 : 0
 
+    # Adjust eval with TT score if available
     eval = nnue_eval(nnue_accs[tid], b, nnue_net)
     if tt_flag == TT_EXACT ||
        (tt_flag == TT_LOWER && tt_score > eval) ||
@@ -349,11 +369,13 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, key_history::
     eval_stack[ply + 1, tid] = eval
     improving = !in_check && ply ≥ 3 && eval > eval_stack[ply - 1, tid]
 
-    if depth ≤ 6 && !in_check
+    # Reverse futility pruning
+    if depth ≤ 6 && !in_check && !is_pv_node
         eval ≥ β + (175 * depth - 25 * improving) && return div(eval + β, 2)
     end
 
-    if depth ≥ 3 && !in_check && eval ≥ β
+    # Null move pruning
+    if depth ≥ 3 && !in_check && eval ≥ β && !is_pv_node
         has_piece = false
         side = sidetomove(b)
         for pt in (QUEEN, ROOK, BISHOP, KNIGHT)
@@ -367,7 +389,7 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, key_history::
             R = min(4 + div(depth, 3) + min(div(eval - β, 200), 3), depth - 1)
             u = donullmove!(b)
             move_stack[ply + 1, tid] = (0, 0)
-            sc = -negamax(b, depth - 1 - R, -β, -β + 1, ply + 1, key_history, tid)
+            sc = -negamax(NonPVNode, b, depth - 1 - R, -β, -β + 1, ply + 1, key_history, tid)
             undomove!(b, u)
             sc ≥ β && return sc
         end
@@ -392,7 +414,8 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, key_history::
         is_quiet   = !is_capture && promotion(m) == PieceType(0)
         cur_pt     = ptype(pieceon(b, from(m))).val
 
-        if depth ≤ 3 && !in_check && is_quiet
+        # Late move pruning
+        if depth ≤ 3 && !in_check && is_quiet && !is_pv_node 
             length(searched_quiets) ≥ (5 + depth * depth) ÷ (2 - Int(improving)) && continue
         end
 
@@ -401,11 +424,20 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, key_history::
         push!(key_history, b.key)
         move_stack[ply + 1, tid] = (cur_pt, to(m).val)
 
-        R  = lmr ? lmr_reduction(depth, i, ischeck(b), is_capture) : 0
-        sc = -negamax(b, depth - 1 - R, -β, -α, ply + 1, key_history, tid)
+        R  = lmr ? lmr_reduction(depth, i, ischeck(b), is_capture, is_pv_node) : 0
 
-        if R > 0 && sc > α
-            sc = -negamax(b, depth - 1, -β, -α, ply + 1, key_history, tid)
+        if i == 1 && is_pv_node
+            sc = -negamax(PVNode, b, depth - 1, -β, -α, ply + 1, key_history, tid)
+        else
+            sc = -negamax(NonPVNode, b, depth - 1 - R, -α - 1, -α, ply + 1, key_history, tid)
+            if sc > α
+                if R > 0
+                    sc = -negamax(NonPVNode, b, depth - 1, -α - 1, -α, ply + 1, key_history, tid)
+                end
+                if is_pv_node && sc > α && sc < β
+                    sc = -negamax(PVNode, b, depth - 1, -β, -α, ply + 1, key_history, tid)
+                end
+            end
         end
 
         pop!(key_history)
@@ -444,7 +476,7 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, key_history::
         is_quiet && push!(searched_quiets, m)
     end
 
-    !search_stopped[] && store_tt(b.key, depth, best_score, flag, best_move, ply)
+    !search_stopped[] && store_tt(b.key, depth, best_score, flag, is_pv_node, best_move, ply)
     return best_score
 end
 
@@ -460,7 +492,7 @@ function extract_pv_from_tt(root::Board, max_len::Int, key_history::Vector{UInt6
             cnt ≥ 2 && break
         end
         cnt ≥ 2 && break
-        _, _, _, tt_move = probe_tt(bd.key, 0, 0)
+        _, _, _, _, tt_move = probe_tt(bd.key, 0, 0)
         tt_move == Move(0) && break
         tt_move ∈ moves(bd) || break
         push!(pv, tt_move)
@@ -528,10 +560,20 @@ function search(b::Board, max_depth::Int, tid::Int)::Move
                 push!(key_history, b.key)
                 move_stack[1, tid] = (cur_pt, to(m).val)
 
-                R  = lmr ? lmr_reduction(depth, i, ischeck(b), is_capture) : 0
-                sc = -negamax(b, depth - 1 - R, -asp_β, -α, 1, key_history, tid)
-                if R > 0 && sc > α
-                    sc = -negamax(b, depth - 1, -asp_β, -α, 1, key_history, tid)
+                R  = lmr ? lmr_reduction(depth, i, ischeck(b), is_capture, true) : 0
+
+                if i == 1
+                    sc = -negamax(PVNode, b, depth - 1, -asp_β, -α, 1, key_history, tid)
+                else
+                    sc = -negamax(NonPVNode, b, depth - 1 - R, -α - 1, -α, 1, key_history, tid)
+                    if sc > α
+                        if R > 0
+                            sc = -negamax(NonPVNode, b, depth - 1, -α - 1, -α, 1, key_history, tid)
+                        end
+                        if sc > α && sc < asp_β
+                            sc = -negamax(PVNode, b, depth - 1, -asp_β, -α, 1, key_history, tid)
+                        end
+                    end
                 end
 
                 pop!(key_history)
@@ -565,7 +607,7 @@ function search(b::Board, max_depth::Int, tid::Int)::Move
             best_move  = depth_best
             prev_score = best_score
             if tid == 1
-                store_tt(b.key, depth, best_score, TT_EXACT, depth_best, 0)
+                store_tt(b.key, depth, best_score, TT_EXACT, true, depth_best, 0)
                 elapsed_ms = div(time_ns() - start_ns, 1_000_000)
                 node_count = sum(_NODE_COUNT)
                 nps    = elapsed_ms > 0 ? div(node_count * 1000, elapsed_ms) : 0
