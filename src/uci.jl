@@ -11,7 +11,6 @@ __________________________________________________"""
 
 board                        = startboard()
 game_key_history             = UInt64[board.key]
-num_threads::Int             = 4
 max_depth::Int               = 99
 search_stopped::Atomic{Bool} = Atomic{Bool}(false)
 search_running::Atomic{Bool} = Atomic{Bool}(false)
@@ -34,7 +33,7 @@ function process_position(command::String)
     elseif tokens[idx] == "fen"
         fen_parts = String[]
         idx += 1
-        while idx <= length(tokens) && tokens[idx] != "moves"
+        while idx ≤ length(tokens) && tokens[idx] != "moves"
             push!(fen_parts, tokens[idx])
             idx += 1
         end
@@ -50,9 +49,9 @@ function process_position(command::String)
 
     global game_key_history = UInt64[board.key]
 
-    if idx <= length(tokens) && tokens[idx] == "moves"
+    if idx ≤ length(tokens) && tokens[idx] == "moves"
         idx += 1
-        while idx <= length(tokens)
+        while idx ≤ length(tokens)
             try
                 move = movefromstring(tokens[idx])
                 domove!(board, move)
@@ -70,9 +69,7 @@ function process_option(tokens::Vector{String})
     end
     option_name = tokens[3]
     value_str   = tokens[5]
-    if option_name == "Threads"
-        global num_threads = parse(Int, value_str)
-    elseif option_name == "Depth"
+    if option_name == "Depth"
         global max_depth = parse(Int, value_str)
     elseif option_name == "Hash"
         resize_tt(parse(Int, value_str))
@@ -89,7 +86,7 @@ __________________________________________________"""
 
 function search_thread(search_board::Board, search_depth::Int, time_limit::Int)
     try
-        best_move = search(search_board, search_depth, time_limit)
+        best_move = smp_search(search_board, search_depth, time_limit)
         println(best_move != Move(0) ? "bestmove $(tostring(best_move))" : "bestmove 0000")
         flush(stdout)
     catch e
@@ -111,20 +108,20 @@ function process_go(tokens::Vector{String})
     wtime = btime = winc = binc = movestogo = movetime = 0
 
     idx = 2
-    while idx <= length(tokens)
-        if tokens[idx] == "wtime" && idx + 1 <= length(tokens)
+    while idx ≤ length(tokens)
+        if tokens[idx] == "wtime" && idx + 1 ≤ length(tokens)
             wtime = parse(Int, tokens[idx + 1]); idx += 2
-        elseif tokens[idx] == "btime" && idx + 1 <= length(tokens)
+        elseif tokens[idx] == "btime" && idx + 1 ≤ length(tokens)
             btime = parse(Int, tokens[idx + 1]); idx += 2
-        elseif tokens[idx] == "winc" && idx + 1 <= length(tokens)
+        elseif tokens[idx] == "winc" && idx + 1 ≤ length(tokens)
             winc = parse(Int, tokens[idx + 1]); idx += 2
-        elseif tokens[idx] == "binc" && idx + 1 <= length(tokens)
+        elseif tokens[idx] == "binc" && idx + 1 ≤ length(tokens)
             binc = parse(Int, tokens[idx + 1]); idx += 2
-        elseif tokens[idx] == "movestogo" && idx + 1 <= length(tokens)
+        elseif tokens[idx] == "movestogo" && idx + 1 ≤ length(tokens)
             movestogo = parse(Int, tokens[idx + 1]); idx += 2
-        elseif tokens[idx] == "movetime" && idx + 1 <= length(tokens)
+        elseif tokens[idx] == "movetime" && idx + 1 ≤ length(tokens)
             movetime = parse(Int, tokens[idx + 1]); idx += 2
-        elseif tokens[idx] == "depth" && idx + 1 <= length(tokens)
+        elseif tokens[idx] == "depth" && idx + 1 ≤ length(tokens)
             search_depth  = parse(Int, tokens[idx + 1])
             depth_limited = true
             time_limit    = typemax(Int)
@@ -161,7 +158,6 @@ __________________________________________________"""
 function process_uci()
     println("id name $(ENGINE_NAME)")
     println("id author $(ENGINE_AUTHOR)")
-    println("option name Threads type spin default 4 min 1 max 10")
     println("option name Depth type spin default 99 min 1 max 99")
     println("option name Hash type spin default 256 min 64 max 1024")
     println("uciok")

@@ -1,14 +1,16 @@
-# search.jl — NNUE search
+# search.jl — NNUE search (lazy SMP)
 
 const INF        = 10_000_000
 const MATE_SCORE =  9_000_000
 
+const _N_THREADS = max(1, Threads.nthreads())
+const _NODE_COUNT   = fill(0, _N_THREADS)
+
 """__________________________________________________
 
-    Transposition Table
+    Transposition Table (shared)
 __________________________________________________"""
 
-# Simple piece-type value for MVV-LVA (PAWN=1..KING=6 matches PieceType.val)
 const _QS_PIECE_VAL = (100, 300, 300, 500, 900, 20000)
 
 const TT_EXACT   = Int8(0)
@@ -16,6 +18,7 @@ const TT_LOWER   = Int8(1)
 const TT_UPPER   = Int8(2)
 const TT_EMPTY   = Int8(-1)
 const TT_MAX_PLY = 256
+
 
 struct TTEntry
     key::UInt64
@@ -51,9 +54,8 @@ function resize_tt(mb::Int)
     fill!(tt, TT_ENTRY_NULL)
 end
 
-# Mate scores are stored relative to root; adjust by ply on probe/store.
 @inline function probe_tt(key::UInt64, depth::Int, ply::Int)
-    idx = Int(key & tt_mask) + 1
+    idx   = Int(key & tt_mask) + 1
     entry = tt[idx]
     (entry.flag == TT_EMPTY || entry.key ≠ key) && return (false, 0, TT_EMPTY, Move(0))
     score = entry.score
@@ -64,7 +66,7 @@ end
 end
 
 @inline function store_tt(key::UInt64, depth::Int, score::Int, flag::Int8, best::Move, ply::Int)
-    idx = Int(key & tt_mask) + 1
+    idx    = Int(key & tt_mask) + 1
     stored = score
     if abs(score) > MATE_SCORE - TT_MAX_PLY
         stored = score + (score > 0 ? ply : -ply)
@@ -102,26 +104,27 @@ init_lmr_table!()
 end
 
 """__________________________________________________
-                        
-    NNUE
+
+    NNUE (one accumulator per thread)
 __________________________________________________"""
 
-const nnue_net = load_nnue(joinpath(@__DIR__, "nnue_hl_1024.bin"))
-const nnue_acc = Accumulator()
+const nnue_net  = load_nnue(joinpath(@__DIR__, "nnue_hl_1024.bin"))
+const nnue_accs = [Accumulator() for _ in 1:_N_THREADS]
 
 """__________________________________________________
 
-    History Heuristics
+    History Heuristics (per-thread, last dim = tid)
 __________________________________________________"""
 
 const MAX_HISTORY = 16384
 
-const history    = zeros(Int, 2, 64, 64)
-const cont_hist  = zeros(Int16, 64, 7, 64, 7, 2)  # [cur_to, cur_pt, prev_to, prev_pt, stm]
-const cont_hist2 = zeros(Int16, 64, 7, 64, 7, 2)  # [cur_to, cur_pt, prev2_to, prev2_pt, stm]
-const eval_stack = zeros(Int, 257)  # index = ply + 1; [1] = root
-const killers    = fill(Move(0), 2, 256)
-const move_stack = fill((0, 0), 256)
+const history      = zeros(Int,   2, 64, 64, _N_THREADS)
+const cont_hist    = zeros(Int16, 64, 7, 64, 7, 2, _N_THREADS)
+const cont_hist2   = zeros(Int16, 64, 7, 64, 7, 2, _N_THREADS)
+const eval_stack   = zeros(Int,   257, _N_THREADS)   # [ply+1, tid]; [1, tid] = root eval
+const killers      = fill(Move(0), 2, 256, _N_THREADS)
+const move_stack   = fill((0, 0), 256, _N_THREADS)
+const _MOVE_SCORES = zeros(Int,   256, 256, _N_THREADS)
 
 function clear_history()
     fill!(history, 0)
@@ -131,24 +134,31 @@ function clear_history()
     fill!(move_stack, (0, 0))
 end
 
-@inline function update_history!(color::Int, from_sq::Int, to_sq::Int, bonus::Int)
+@inline function update_history!(color::Int, from_sq::Int, to_sq::Int, bonus::Int, tid::Int)
     clamped = clamp(bonus, -MAX_HISTORY, MAX_HISTORY)
-    @inbounds history[color, from_sq, to_sq] +=
-        clamped - history[color, from_sq, to_sq] * abs(clamped) ÷ MAX_HISTORY
+    @inbounds history[color, from_sq, to_sq, tid] +=
+        clamped - history[color, from_sq, to_sq, tid] * abs(clamped) ÷ MAX_HISTORY
 end
 
-@inline function update_cont_hist!(stm::Int, prev_pt::Int, prev_to::Int, prev2_pt::Int, prev2_to::Int, cur_pt::Int, cur_to::Int, bonus::Int)
+@inline function update_cont_hist!(
+    stm::Int,
+    prev_pt::Int,  prev_to::Int,
+    prev2_pt::Int, prev2_to::Int,
+    cur_pt::Int,   cur_to::Int,
+    bonus::Int,
+    tid::Int,
+)
     prev_pt == 0 && return
     clamped = clamp(bonus, -MAX_HISTORY, MAX_HISTORY)
     @inbounds begin
-        old = Int(cont_hist[cur_to, cur_pt, prev_to, prev_pt, stm])
-        cont_hist[cur_to, cur_pt, prev_to, prev_pt, stm] = Int16(old + clamped - old * abs(clamped) ÷ MAX_HISTORY)
+        old = Int(cont_hist[cur_to, cur_pt, prev_to, prev_pt, stm, tid])
+        cont_hist[cur_to, cur_pt, prev_to, prev_pt, stm, tid] = Int16(old + clamped - old * abs(clamped) ÷ MAX_HISTORY)
     end
     if prev2_pt > 0
         clamped2 = clamp(bonus, -MAX_HISTORY, MAX_HISTORY)
         @inbounds begin
-            old2 = Int(cont_hist2[cur_to, cur_pt, prev2_to, prev2_pt, stm])
-            cont_hist2[cur_to, cur_pt, prev2_to, prev2_pt, stm] = Int16(old2 + clamped2 - old2 * abs(clamped2) ÷ MAX_HISTORY)
+            old2 = Int(cont_hist2[cur_to, cur_pt, prev2_to, prev2_pt, stm, tid])
+            cont_hist2[cur_to, cur_pt, prev2_to, prev2_pt, stm, tid] = Int16(old2 + clamped2 - old2 * abs(clamped2) ÷ MAX_HISTORY)
         end
     end
 end
@@ -160,13 +170,21 @@ const search_deadline = Ref{UInt64}(typemax(UInt64))
     Move Ordering
 __________________________________________________"""
 
-const _SCORE_HASH     = 1_000_000
-const _SCORE_PROMO    =   900_000
-const _SCORE_CAPTURE  =   100_000  # + MVV-LVA offset
-const _SCORE_KILLER   =    90_000
-const _MOVE_SCORES = zeros(Int, 256, 256) # [ply, move_index]
+const _SCORE_HASH    = 1_000_000
+const _SCORE_PROMO   =   900_000
+const _SCORE_CAPTURE =   100_000
+const _SCORE_KILLER  =    90_000
 
-@inline function score_move(b::Board, m::Move, tt_move::Move, k1::Move, k2::Move, prev_pt::Int = 0, prev_to::Int = 0, prev2_pt::Int = 0, prev2_to::Int = 0)::Int
+@inline function score_move(
+    b::Board,
+    m::Move,
+    tt_move::Move,
+    k1::Move,
+    k2::Move,
+    prev_pt::Int = 0,  prev_to::Int = 0,
+    prev2_pt::Int = 0, prev2_to::Int = 0;
+    tid::Int = 1,
+)::Int
     m == tt_move && return _SCORE_HASH
 
     promo = promotion(m)
@@ -175,8 +193,8 @@ const _MOVE_SCORES = zeros(Int, 256, 256) # [ply, move_index]
     end
 
     if moveiscapture(b, m)
-        vt = ptype(pieceon(b, to(m))).val
-        victim = vt > 6 ? 1 : vt
+        vt      = ptype(pieceon(b, to(m))).val
+        victim  = vt > 6 ? 1 : vt
         attacker = ptype(pieceon(b, from(m))).val
         return _SCORE_CAPTURE + _QS_PIECE_VAL[victim] * 10 - attacker
     end
@@ -184,19 +202,29 @@ const _MOVE_SCORES = zeros(Int, 256, 256) # [ply, move_index]
     m == k1 && return _SCORE_KILLER
     m == k2 && return _SCORE_KILLER - 1
 
-    color = sidetomove(b) == WHITE ? 1 : 2
+    color  = sidetomove(b) == WHITE ? 1 : 2
     cur_pt = ptype(pieceon(b, from(m))).val
-    ch  = prev_pt  > 0 ? @inbounds(Int(cont_hist[to(m).val, cur_pt, prev_to, prev_pt, color]))  : 0
-    ch2 = prev2_pt > 0 ? @inbounds(Int(cont_hist2[to(m).val, cur_pt, prev2_to, prev2_pt, color])) : 0
-    return @inbounds(history[color, from(m).val, to(m).val]) + (ch ÷ 2) + (ch2 ÷ 3)
+    ch  = prev_pt  > 0 ? @inbounds(Int(cont_hist[to(m).val, cur_pt, prev_to,  prev_pt,  color, tid])) : 0
+    ch2 = prev2_pt > 0 ? @inbounds(Int(cont_hist2[to(m).val, cur_pt, prev2_to, prev2_pt, color, tid])) : 0
+    return @inbounds(history[color, from(m).val, to(m).val, tid]) + (ch ÷ 2) + (ch2 ÷ 3)
 end
 
-function sort_moves!(b::Board, ml::Vector{Move}, ply::Int, tt_best::Move, k1::Move, k2::Move, prev_pt::Int, prev_to::Int, prev2_pt::Int = 0, prev2_to::Int = 0)
-    n = length(ml)
-    scores = @view _MOVE_SCORES[ply, 1:n]
-    
+function sort_moves!(
+    b::Board,
+    ml::Vector{Move},
+    ply::Int,
+    tt_best::Move,
+    k1::Move,
+    k2::Move,
+    prev_pt::Int,  prev_to::Int,
+    prev2_pt::Int, prev2_to::Int,
+    tid::Int,
+)
+    n      = length(ml)
+    scores = @view _MOVE_SCORES[1:n, ply, tid]
+
     for i in 1:n
-        scores[i] = score_move(b, ml[i], tt_best, k1, k2, prev_pt, prev_to, prev2_pt, prev2_to)
+        scores[i] = score_move(b, ml[i], tt_best, k1, k2, prev_pt, prev_to, prev2_pt, prev2_to; tid=tid)
     end
 
     for i in 2:n
@@ -204,11 +232,11 @@ function sort_moves!(b::Board, ml::Vector{Move}, ply::Int, tt_best::Move, k1::Mo
         tmp_s = scores[i]
         j = i - 1
         while j ≥ 1 && scores[j] < tmp_s
-            ml[j+1] = ml[j]
+            ml[j+1]     = ml[j]
             scores[j+1] = scores[j]
             j -= 1
         end
-        ml[j+1] = tmp_m
+        ml[j+1]     = tmp_m
         scores[j+1] = tmp_s
     end
 end
@@ -218,24 +246,20 @@ end
     Quiescence Search
 __________________________________________________"""
 
-function quiescence(b::Board, α::Int, β::Int, ply::Int, node_count::Ref{Int}, key_history::Vector{UInt64})::Int
-    node_count[] += 1
+function quiescence(b::Board, α::Int, β::Int, ply::Int, key_history::Vector{UInt64}, tid::Int)::Int
+    _NODE_COUNT[tid] += 1
     search_stopped[] && return 0
 
-    # Repetition draw
     cnt = 0
     for k in key_history
         k == b.key && (cnt += 1)
         cnt ≥ 2 && return 0
     end
 
-    if ischeckmate(b)
-        return -(MATE_SCORE - ply)
-    end
+    ischeckmate(b) && return -(MATE_SCORE - ply)
     isstalemate(b) && return 0
 
-    # Stand-pat: static eval as a lower bound
-    stand_pat = nnue_eval(nnue_acc, b, nnue_net)
+    stand_pat = nnue_eval(nnue_accs[tid], b, nnue_net)
     stand_pat ≥ β && return stand_pat
     α = max(α, stand_pat)
 
@@ -245,22 +269,22 @@ function quiescence(b::Board, α::Int, β::Int, ply::Int, node_count::Ref{Int}, 
     end
     isempty(captures) && return α
 
-    sort_moves!(b, captures, ply, Move(0), Move(0), Move(0), 0, 0)
+    sort_moves!(b, captures, ply, Move(0), Move(0), Move(0), 0, 0, 0, 0, tid)
 
     best = stand_pat
     for m in captures
         search_stopped[] && break
 
-        update!(nnue_acc, b, m, nnue_net)
+        update!(nnue_accs[tid], b, m, nnue_net)
         u  = domove!(b, m)
         push!(key_history, b.key)
-        sc = -quiescence(b, -β, -α, ply + 1, node_count, key_history)
+        sc = -quiescence(b, -β, -α, ply + 1, key_history, tid)
         pop!(key_history)
         undomove!(b, u)
-        undo_update!(nnue_acc, b, m, nnue_net)
+        undo_update!(nnue_accs[tid], b, m, nnue_net)
 
-        best  = max(best, sc)
-        α = max(α, sc)
+        best = max(best, sc)
+        α    = max(α, sc)
         α ≥ β && break
     end
 
@@ -272,17 +296,14 @@ end
     Negamax
 __________________________________________________"""
 
-function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, node_count::Ref{Int}, key_history::Vector{UInt64})::Int
-    node_count[] += 1
-    if search_stopped[]
-        return 0
-    end
+function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, key_history::Vector{UInt64}, tid::Int)::Int
+    _NODE_COUNT[tid] += 1
+    search_stopped[] && return 0
     if time_ns() ≥ search_deadline[]
         search_stopped[] = true
         return 0
     end
 
-    # Repetition / fifty-move draw
     cnt = 0
     for k in key_history
         k == b.key && (cnt += 1)
@@ -292,22 +313,19 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, node_count::R
 
     ml = collect(moves(b))
 
-    # Terminal node: checkmate or stalemate
     if isempty(ml)
         return ischeck(b) ? -(MATE_SCORE - ply) : 0
     end
 
     in_check = ischeck(b)
 
-    # Check extension: don't drop into QS while in check
     if depth == 0
         if !in_check
-            return quiescence(b, α, β, ply, node_count, key_history)
+            return quiescence(b, α, β, ply, key_history, tid)
         end
         depth = 1
     end
 
-    # Probe TT; use cached score/bound if depth-sufficient
     hit, tt_score, tt_flag, tt_best = probe_tt(b.key, depth, ply)
     if hit
         if tt_flag == TT_EXACT
@@ -320,24 +338,21 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, node_count::R
         α ≥ β && return tt_score
     end
 
-    # IIR — no hash move at sufficient depth, reduce by 1
     depth -= (tt_best == Move(0) && depth ≥ 4) ? 1 : 0
 
-    eval = nnue_eval(nnue_acc, b, nnue_net)
+    eval = nnue_eval(nnue_accs[tid], b, nnue_net)
     if tt_flag == TT_EXACT ||
        (tt_flag == TT_LOWER && tt_score > eval) ||
        (tt_flag == TT_UPPER && tt_score < eval)
         eval = tt_score
     end
-    eval_stack[ply + 1] = eval
-    improving = !in_check && ply ≥ 3 && eval > eval_stack[ply - 1]
+    eval_stack[ply + 1, tid] = eval
+    improving = !in_check && ply ≥ 3 && eval > eval_stack[ply - 1, tid]
 
-    # Reverse futility pruning
     if depth ≤ 6 && !in_check
         eval ≥ β + (175 * depth - 25 * improving) && return div(eval + β, 2)
     end
 
-    # Null move pruning — skip if side to move has only king + pawns
     if depth ≥ 3 && !in_check && eval ≥ β
         has_piece = false
         side = sidetomove(b)
@@ -351,79 +366,74 @@ function negamax(b::Board, depth::Int, α::Int, β::Int, ply::Int, node_count::R
         if has_piece
             R = min(4 + div(depth, 3) + min(div(eval - β, 200), 3), depth - 1)
             u = donullmove!(b)
-            move_stack[ply + 1] = (0, 0)
-            sc = -negamax(b, depth - 1 - R, -β, -β + 1, ply + 1, node_count, key_history)
+            move_stack[ply + 1, tid] = (0, 0)
+            sc = -negamax(b, depth - 1 - R, -β, -β + 1, ply + 1, key_history, tid)
             undomove!(b, u)
             sc ≥ β && return sc
         end
     end
 
-    # Move loop
-    k1  = ply ≤ 256 ? killers[1, ply] : Move(0)
-    k2  = ply ≤ 256 ? killers[2, ply] : Move(0)
+    k1  = ply ≤ 256 ? killers[1, ply, tid] : Move(0)
+    k2  = ply ≤ 256 ? killers[2, ply, tid] : Move(0)
     stm = sidetomove(b) == WHITE ? 1 : 2
-    prev_pt,   prev_to   = ply > 1 ? move_stack[ply]   : (0, 0)
-    prev2_pt,  prev2_to  = ply > 2 ? move_stack[ply-1] : (0, 0)
+    prev_pt,  prev_to  = ply > 1 ? move_stack[ply, tid]     : (0, 0)
+    prev2_pt, prev2_to = ply > 2 ? move_stack[ply - 1, tid] : (0, 0)
 
-    sort_moves!(b, ml, ply, tt_best, k1, k2, prev_pt, prev_to, prev2_pt, prev2_to)
+    sort_moves!(b, ml, ply, tt_best, k1, k2, prev_pt, prev_to, prev2_pt, prev2_to, tid)
 
-    best_score = -INF
-    best_move = Move(0)
-    flag = TT_UPPER
+    best_score      = -INF
+    best_move       = Move(0)
+    flag            = TT_UPPER
     searched_quiets = Move[]
 
     for (i, m) in enumerate(ml)
-        lmr = i > 2 && depth ≥ 3 && promotion(m) == PieceType(0)
+        lmr        = i > 2 && depth ≥ 3 && promotion(m) == PieceType(0)
         is_capture = moveiscapture(b, m)
-        is_quiet = !is_capture && promotion(m) == PieceType(0)
+        is_quiet   = !is_capture && promotion(m) == PieceType(0)
+        cur_pt     = ptype(pieceon(b, from(m))).val
 
-        # LMP skip late quiet moves at low depth
         if depth ≤ 3 && !in_check && is_quiet
             length(searched_quiets) ≥ (5 + depth * depth) ÷ (2 - Int(improving)) && continue
         end
 
-        cur_pt = ptype(pieceon(b, from(m))).val
-        update!(nnue_acc, b, m, nnue_net)
+        update!(nnue_accs[tid], b, m, nnue_net)
         u  = domove!(b, m)
         push!(key_history, b.key)
-        move_stack[ply + 1] = (cur_pt, to(m).val)
+        move_stack[ply + 1, tid] = (cur_pt, to(m).val)
 
-        R = lmr ? lmr_reduction(depth, i, ischeck(b), is_capture) : 0
+        R  = lmr ? lmr_reduction(depth, i, ischeck(b), is_capture) : 0
+        sc = -negamax(b, depth - 1 - R, -β, -α, ply + 1, key_history, tid)
 
-        sc = -negamax(b, depth - 1 - R, -β, -α, ply + 1, node_count, key_history)
-
-        # LMR re-search at full depth if the reduced search raised α
         if R > 0 && sc > α
-            sc = -negamax(b, depth - 1, -β, -α, ply + 1, node_count, key_history)
+            sc = -negamax(b, depth - 1, -β, -α, ply + 1, key_history, tid)
         end
 
         pop!(key_history)
         undomove!(b, u)
-        undo_update!(nnue_acc, b, m, nnue_net)
+        undo_update!(nnue_accs[tid], b, m, nnue_net)
 
         if sc > best_score
             best_score = sc
-            best_move = m
+            best_move  = m
 
             if sc > α
-                α = sc
+                α    = sc
                 flag = TT_EXACT
 
                 if α ≥ β
                     flag = TT_LOWER
-                    # Update killers, history, and cont_hist on quiet beta cutoff
                     if is_quiet
                         if ply ≤ 256
-                            killers[2, ply] = killers[1, ply]
-                            killers[1, ply] = m
+                            killers[2, ply, tid] = killers[1, ply, tid]
+                            killers[1, ply, tid] = m
                         end
                         bonus = depth * depth
-                        update_history!(stm, from(m).val, to(m).val, bonus)
-                        update_cont_hist!(stm, prev_pt, prev_to, prev2_pt, prev2_to, cur_pt, to(m).val, bonus)
+                        update_history!(stm, from(m).val, to(m).val, bonus, tid)
+                        update_cont_hist!(stm, prev_pt, prev_to, prev2_pt, prev2_to, cur_pt, to(m).val, bonus, tid)
                         for qm in searched_quiets
                             qm_pt = ptype(pieceon(b, from(qm))).val
-                            update_history!(stm, from(qm).val, to(qm).val, -bonus)
-                            update_cont_hist!(stm, prev_pt, prev_to, prev2_pt, prev2_to, qm_pt, to(qm).val, -bonus)
+                            update_history!(stm, from(qm).val, to(qm).val, -bonus, tid)
+                            update_cont_hist!(stm, prev_pt, prev_to, prev2_pt, prev2_to, qm_pt, to(qm).val, -bonus, tid)
                         end
                     end
                     break
@@ -445,14 +455,11 @@ function extract_pv_from_tt(root::Board, max_len::Int, key_history::Vector{UInt6
     pv_keys = copy(key_history)
     for _ in 1:max_len
         cnt = 0
-
-         # check for 3-fold repetition in PV extraction
         for k in pv_keys
             k == bd.key && (cnt += 1)
             cnt ≥ 2 && break
         end
         cnt ≥ 2 && break
-        
         _, _, _, tt_move = probe_tt(bd.key, 0, 0)
         tt_move == Move(0) && break
         tt_move ∈ moves(bd) || break
@@ -469,33 +476,25 @@ end
     Iterative Deepening Root
 __________________________________________________"""
 
-function search(b::Board, max_depth::Int, time_limit::Int)::Move
-    @inbounds for i in eachindex(history)
-        history[i] >>= 1
-    end
-    @inbounds for i in eachindex(cont_hist)
-        cont_hist[i] >>= 1
-    end
-    @inbounds for i in eachindex(cont_hist2)
-        cont_hist2[i] >>= 1
-    end
-    fill!(killers, Move(0))
-    refresh!(nnue_acc, b, nnue_net)
-    eval_stack[1] = nnue_eval(nnue_acc, b, nnue_net)
+function search(b::Board, max_depth::Int, tid::Int)::Move
+    hv  = @view history[:, :, :, tid]
+    cv  = @view cont_hist[:, :, :, :, :, tid]
+    cv2 = @view cont_hist2[:, :, :, :, :, tid]
+    @inbounds for i in eachindex(hv);  hv[i]  >>= 1; end
+    @inbounds for i in eachindex(cv);  cv[i]  >>= 1; end
+    @inbounds for i in eachindex(cv2); cv2[i] >>= 1; end
+    kv = @view killers[:, :, tid]
+    fill!(kv, Move(0))
 
-    start_ns  = time_ns()
-    if time_limit ≥ typemax(Int) >> 20
-        deadline = start_ns + 30_000_000_000
-    else
-        deadline = start_ns + UInt64(time_limit) * 1_000_000
-    end
+    refresh!(nnue_accs[tid], b, nnue_net)
+    eval_stack[1, tid] = nnue_eval(nnue_accs[tid], b, nnue_net)
 
+    start_ns    = time_ns()
     best_move   = Move(0)
     ml          = collect(moves(b))
-    node_count  = Ref(0)
+    _NODE_COUNT[tid] = 0
     key_history = copy(game_key_history)
     isempty(ml) && return best_move
-    search_deadline[] = deadline
 
     prev_score = 0
 
@@ -508,9 +507,9 @@ function search(b::Board, max_depth::Int, time_limit::Int)::Move
         depth_best = Move(0)
         best_score = prev_score
 
-        k1 = killers[1, 1]
-        k2 = killers[2, 1]
-        sort!(ml, by = m -> score_move(b, m, best_move, k1, k2), rev = true)
+        k1 = killers[1, 1, tid]
+        k2 = killers[2, 1, tid]
+        sort!(ml, by = m -> score_move(b, m, best_move, k1, k2, 0, 0, 0, 0; tid=tid), rev = true)
 
         while true
             search_stopped[] && break
@@ -520,26 +519,27 @@ function search(b::Board, max_depth::Int, time_limit::Int)::Move
             for (i, m) in enumerate(ml)
                 search_stopped[] && break
 
-                lmr = i > 2 && depth ≥ 3 && promotion(m) == PieceType(0)
+                lmr        = i > 2 && depth ≥ 3 && promotion(m) == PieceType(0)
+                is_capture = moveiscapture(b, m)
 
                 cur_pt = ptype(pieceon(b, from(m))).val
-                update!(nnue_acc, b, m, nnue_net)
+                update!(nnue_accs[tid], b, m, nnue_net)
                 u  = domove!(b, m)
                 push!(key_history, b.key)
-                move_stack[1] = (cur_pt, to(m).val)
+                move_stack[1, tid] = (cur_pt, to(m).val)
 
-                R = lmr ? lmr_reduction(depth, i, ischeck(b), false) : 0
-                sc = -negamax(b, depth - 1 - R, -asp_β, -α, 1, node_count, key_history)
+                R  = lmr ? lmr_reduction(depth, i, ischeck(b), is_capture) : 0
+                sc = -negamax(b, depth - 1 - R, -asp_β, -α, 1, key_history, tid)
                 if R > 0 && sc > α
-                    sc = -negamax(b, depth - 1, -asp_β, -α, 1, node_count, key_history)
+                    sc = -negamax(b, depth - 1, -asp_β, -α, 1, key_history, tid)
                 end
 
                 pop!(key_history)
                 undomove!(b, u)
-                undo_update!(nnue_acc, b, m, nnue_net)
+                undo_update!(nnue_accs[tid], b, m, nnue_net)
 
                 if sc > α
-                    α = sc
+                    α         = sc
                     iter_best = m
                     α ≥ asp_β && break
                 end
@@ -564,16 +564,60 @@ function search(b::Board, max_depth::Int, time_limit::Int)::Move
         if !search_stopped[] && depth_best ≠ Move(0)
             best_move  = depth_best
             prev_score = best_score
-            store_tt(b.key, depth, best_score, TT_EXACT, depth_best, 0)
-            elapsed_ms = div(time_ns() - start_ns, 1_000_000)
-            nps = elapsed_ms > 0 ? div(node_count[] * 1000, elapsed_ms) : 0
-            pv_str = join(tostring.(extract_pv_from_tt(b, depth, key_history)), " ")
-            println("info depth $depth score cp $best_score time $elapsed_ms nodes $(node_count[]) nps $nps pv $pv_str")
-            flush(stdout)
+            if tid == 1
+                store_tt(b.key, depth, best_score, TT_EXACT, depth_best, 0)
+                elapsed_ms = div(time_ns() - start_ns, 1_000_000)
+                node_count = sum(_NODE_COUNT)
+                nps    = elapsed_ms > 0 ? div(node_count * 1000, elapsed_ms) : 0
+                pv_str = join(tostring.(extract_pv_from_tt(b, depth, key_history)), " ")
+                println("info depth $depth score cp $best_score time $elapsed_ms nodes $node_count nps $nps pv $pv_str")
+                flush(stdout)
+            end
         end
 
-        time_ns() ≥ deadline && break
+        time_ns() ≥ search_deadline[] && break
     end
 
     return best_move
+end
+
+"""__________________________________________________
+
+    SMP
+__________________________________________________"""
+
+function smp_search(b::Board, max_depth::Int, time_limit::Int)::Move
+    start_ns = time_ns()
+    if time_limit ≥ typemax(Int) >> 20
+        search_deadline[] = start_ns + 30_000_000_000
+    else
+        search_deadline[] = start_ns + UInt64(time_limit) * 1_000_000
+    end
+
+    n = _N_THREADS
+    if n == 1
+        return search(b, max_depth, 1)
+    end
+
+    # reset node counts for all threads
+    for tid in 1:n
+        _NODE_COUNT[tid] = 0
+    end
+
+    # threads 2 to n will just populate the TT.
+    tasks = Vector{Task}(undef, n)
+    for tid in 2:n
+        b_copy = deepcopy(b)
+        tasks[tid] = Threads.@spawn search(b_copy, max_depth, tid)
+    end
+
+    # thread 1 is the master thread that reports the result. 
+    result = search(b, max_depth, 1)
+    search_stopped[] = true
+
+    for tid in 2:n
+        wait(tasks[tid])
+    end
+
+    return result
 end
