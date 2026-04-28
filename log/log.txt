@@ -218,3 +218,23 @@ Ptnml(0-2): [96, 42, 40, 4, 1], WL/DD Ratio: 12.33
 LLR: -2.95 (-100.2%) (-2.94, 2.94) [0.00, 5.00]
 SPRT ([0.00, 5.00]) completed - H0 was accepted
 --------------------------------------------------
+
+39e1f35 — Make the code look nice. Add tt store at root search
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (10+0.1, 4t, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 2.78 +/- 9.82, nElo: 4.31 +/- 15.23
+LOS: 71.05 %, DrawRatio: 40.80 %, PairsRatio: 1.02
+Games: 2000, Wins: 532, Losses: 516, Draws: 952, Points: 1008.0 (50.40 %)
+Ptnml(0-2): [35, 258, 408, 254, 45], WL/DD Ratio: 0.85
+LLR: -0.11 (-5.2%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
+454aefe — Correct static eval based on TT.
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (15+0.15, 4t, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 14.87 +/- 11.16, nElo: 24.07 +/- 18.03
+LOS: 99.56 %, DrawRatio: 44.04 %, PairsRatio: 1.33
+Games: 1426, Wins: 411, Losses: 350, Draws: 665, Points: 743.5 (52.14 %)
+Ptnml(0-2): [23, 148, 314, 201, 27], WL/DD Ratio: 0.99
+LLR: 2.23 (101.5%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
