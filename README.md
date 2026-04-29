@@ -7,13 +7,14 @@ Julia, like Python, is highly portable and easy on the eye.
 Requirements: [Julia](https://julialang.org/downloads/) 1.9+. Make sure to add it to your PATH.
 
 ## Strength
-A quick 100 games between commit 6b8daef against Stash 30 (~3164), 3+2. UHO_Lichess_4852_v1.epd.
+This engine plays chess with an Elo.
+200 games between commit 454aefe against Stash 30 (~3164), 3+2. UHO_Lichess_4852_v1.epd.
 
 ```
 Results of DIPUTS vs Stash-30-Linux-64 (3+2, NULL - 1t, 256MB, UHO_Lichess_4852_v1.epd):
-Elo: 74.06 +/- 50.87, nElo: 103.00 +/- 68.10
-LOS: 99.85 %, DrawRatio: 36.00 %, PairsRatio: 3.57
-Games: 100, Wins: 44, Losses: 23, Draws: 33, Points: 60.5 (60.50 %)
+Elo: 59.64 +/- 38.97, nElo: 75.49 +/- 48.15
+LOS: 99.89 %, DrawRatio: 38.00 %, PairsRatio: 2.26
+Games: 200, Wins: 93, Losses: 59, Draws: 48, Points: 117.0 (58.50 %)
 ```
 
 ## Setup (one time)
