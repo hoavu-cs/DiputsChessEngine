@@ -1,6 +1,6 @@
 # search.jl — NNUE search (lazy SMP)
 
-const INF        = 10_000_000
+const ∞        = 10_000_000
 const MATE_SCORE =  9_000_000
 
 abstract type NodeType end
@@ -138,6 +138,8 @@ function clear_history()
     fill!(cont_hist2, Int16(0))
     fill!(killers, Move(0))
     fill!(move_stack, (0, 0))
+    fill!(_CORR_TABLE, Int16(0))
+    fill!(_MINOR_TABLE, Int16(0))
 end
 
 @inline function update_history!(color::Int, from_sq::Int, to_sq::Int, bonus::Int, tid::Int)
@@ -180,9 +182,9 @@ __________________________________________________"""
 const _CORR_SIZE    = 1 << 16
 const _CORR_MASK    = _CORR_SIZE - 1
 const _CORR_TABLE   = zeros(Int16, 2, _CORR_SIZE)  # [white, black]
-const _CORR_GRAVITY = 256
-const _CORR_WEIGHT  = 64    # 64/256 = 0.25 EMA learning rate
-const _CORR_CLAMP   = 16384 # ±64 cp when divided by 256
+const Δ = 256
+const δ  = 64    # 64/256 = 0.25 EMA learning rate
+const Γ   = 16384  # max correction value (after scaling by Δ)
 
 @inline function corr_value(key::UInt64, color::Int)::Int
     Int(_CORR_TABLE[color, Int(key & _CORR_MASK) + 1])
@@ -192,13 +194,33 @@ end
     Gravity moving average update:
     new = old + 0.25 * (bonus - old)
         = 0.75 * old + 0.25 * bonus
-    Then clamp to [-_CORR_CLAMP, _CORR_CLAMP].
+    Then clamp to [-Γ, Γ].
 """
 @inline function corr_update!(key::UInt64, color::Int, bonus::Int)
     idx  = Int(key & _CORR_MASK) + 1
     old  = Int(_CORR_TABLE[color, idx])
-    newv = clamp(old + (bonus - old) * _CORR_WEIGHT ÷ _CORR_GRAVITY, -_CORR_CLAMP, _CORR_CLAMP)
+    newv = clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ)
     _CORR_TABLE[color, idx] = Int16(newv)
+end
+
+# Minor piece correction history — same pattern, indexed by knight+bishop hash
+const _MINOR_SIZE  = 1 << 14
+const _MINOR_MASK  = _MINOR_SIZE - 1
+const _MINOR_TABLE = zeros(Int16, 2, _MINOR_SIZE)
+
+@inline function minor_key(b::Board)::UInt64
+    b.bytype[2].val ⊻ b.bytype[3].val
+end
+
+@inline function minor_corr_value(key::UInt64, color::Int)::Int
+    Int(_MINOR_TABLE[color, Int(key & _MINOR_MASK) + 1])
+end
+
+@inline function update_minor_corr!(key::UInt64, color::Int, bonus::Int)
+    idx  = Int(key & _MINOR_MASK) + 1
+    old  = Int(_MINOR_TABLE[color, idx])
+    newv = clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ)
+    _MINOR_TABLE[color, idx] = Int16(newv)
 end
 
 """__________________________________________________
@@ -393,8 +415,8 @@ function negamax(
     # Raw NNUE eval
     raw_eval = nnue_eval(nnue_accs[tid], b, nnue_net)
 
-    # Apply pawn correction history to raw eval
-    eval = raw_eval + corr_value(b.bytype[1].val, stm) ÷ 256
+    # Apply pawn & minor correction history to raw eval
+    eval = raw_eval + (corr_value(b.bytype[1].val, stm) + minor_corr_value(minor_key(b), stm)) ÷ Δ
 
     # TT score overrides if it provides a tighter bound
     if tt_flag == TT_EXACT ||
@@ -440,7 +462,7 @@ function negamax(
 
     sort_moves!(b, ml, ply, tt_best, k1, k2, prev_pt, prev_to, prev2_pt, prev2_to, tid)
 
-    best_score      = -INF
+    best_score      = -∞
     best_move       = Move(0)
     flag            = TT_UPPER
     searched_quiets = Move[]
@@ -522,10 +544,12 @@ function negamax(
     if !search_stopped[] && !in_check && depth ≥ 2
         diff = best_score - raw_eval
         best_is_capture = best_move ≠ Move(0) && moveiscapture(b, best_move)
-        fail_high = best_move ≠ Move(0)                        # a move beat alpha
-        direction_ok = fail_high ? (diff > 0) : (diff < 0)   # fail-high: up only; fail-low: down only
+        fail_high = best_move ≠ Move(0)                              # a move beat alpha
+        direction_ok = fail_high ? (diff > 0) : (diff < 0)          # fail-high: up only; fail-low: down only
         if !best_is_capture && direction_ok
-            corr_update!(b.bytype[1].val, stm, clamp(diff * depth * 256, -_CORR_CLAMP, _CORR_CLAMP))
+            bonus = clamp(diff * depth * Δ, -Γ, Γ)
+            corr_update!(b.bytype[1].val, stm, bonus)
+            update_minor_corr!(minor_key(b), stm, bonus)
         end
     end
 
@@ -587,8 +611,8 @@ function search(b::Board, max_depth::Int, tid::Int)::Move
         search_stopped[] && break
 
         window     = 50
-        asp_α      = depth ≥ 6 ? prev_score - window : -INF
-        asp_β      = depth ≥ 6 ? prev_score + window :  INF
+        asp_α      = depth ≥ 6 ? prev_score - window : -∞
+        asp_β      = depth ≥ 6 ? prev_score + window :  ∞
         depth_best = Move(0)
         best_score = prev_score
 
@@ -644,11 +668,11 @@ function search(b::Board, max_depth::Int, tid::Int)::Move
 
             if α ≤ asp_α
                 window *= 2
-                asp_α = window ≥ 200 ? -INF : max(asp_α - window, -INF)
+                asp_α = window ≥ 200 ? -∞ : max(asp_α - window, -∞)
             elseif α ≥ asp_β
                 iter_best ≠ Move(0) && (depth_best = iter_best; best_score = α)
                 window *= 2
-                asp_β = window ≥ 200 ?  INF : min(asp_β + window, INF)
+                asp_β = window ≥ 200 ?  ∞ : min(asp_β + window, ∞)
             else
                 depth_best = iter_best
                 best_score = α
