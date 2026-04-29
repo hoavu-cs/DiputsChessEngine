@@ -77,32 +77,65 @@ end
 # Both must be called with the board in the PRE-move state.
 # Val{true} = apply (update!), Val{false} = reverse (undo_update!).
 @inline function _apply_move!(acc::Accumulator, b::Board, m::Move, net::NNUENet, ::Val{add}) where {add}
-    piece  = pieceon(b, from(m))
-    pt     = ptype(piece).val - 1
-    color  = pcolor(piece)
-    fw     = net.fw
-    fsq    = _nnue_sq(from(m).val)
-    tsq    = _nnue_sq(to(m).val)
+    piece = pieceon(b, from(m))
+    pt    = ptype(piece).val - 1
+    fw    = net.fw
+    fsq   = _nnue_sq(from(m).val)
+    tsq   = _nnue_sq(to(m).val)
 
-    if color == WHITE
-        add ? _acc_add!(acc.w, fw, 0, pt, tsq) : _acc_sub!(acc.w, fw, 0, pt, tsq)
-        add ? _acc_sub!(acc.w, fw, 0, pt, fsq) : _acc_add!(acc.w, fw, 0, pt, fsq)
-        add ? _acc_add!(acc.b, fw, 1, pt, tsq ⊻ 56) : _acc_sub!(acc.b, fw, 1, pt, tsq ⊻ 56)
-        add ? _acc_sub!(acc.b, fw, 1, pt, fsq ⊻ 56) : _acc_add!(acc.b, fw, 1, pt, fsq ⊻ 56)
+    if pcolor(piece) == WHITE
+        fw_to  = _feat(0, pt, tsq)
+        fw_frm = _feat(0, pt, fsq)
+        fb_to  = _feat(1, pt, tsq ⊻ 56)
+        fb_frm = _feat(1, pt, fsq ⊻ 56)
         if moveiscapture(b, m)
-            cp = ptype(pieceon(b, to(m))).val - 1
-            add ? _acc_sub!(acc.w, fw, 1, cp, tsq)      : _acc_add!(acc.w, fw, 1, cp, tsq)
-            add ? _acc_sub!(acc.b, fw, 0, cp, tsq ⊻ 56) : _acc_add!(acc.b, fw, 0, cp, tsq ⊻ 56)
+            cp     = ptype(pieceon(b, to(m))).val - 1
+            fw_cap = _feat(1, cp, tsq)
+            fb_cap = _feat(0, cp, tsq ⊻ 56)
+            @inbounds @simd for j in 1:NNUE_HL
+                δ = Int32(fw[j, fw_to]) - Int32(fw[j, fw_frm]) - Int32(fw[j, fw_cap])
+                acc.w[j] += add ? δ : -δ
+            end
+            @inbounds @simd for j in 1:NNUE_HL
+                δ = Int32(fw[j, fb_to]) - Int32(fw[j, fb_frm]) - Int32(fw[j, fb_cap])
+                acc.b[j] += add ? δ : -δ
+            end
+        else
+            @inbounds @simd for j in 1:NNUE_HL
+                δ = Int32(fw[j, fw_to]) - Int32(fw[j, fw_frm])
+                acc.w[j] += add ? δ : -δ
+            end
+            @inbounds @simd for j in 1:NNUE_HL
+                δ = Int32(fw[j, fb_to]) - Int32(fw[j, fb_frm])
+                acc.b[j] += add ? δ : -δ
+            end
         end
     else
-        add ? _acc_add!(acc.b, fw, 0, pt, tsq ⊻ 56) : _acc_sub!(acc.b, fw, 0, pt, tsq ⊻ 56)
-        add ? _acc_sub!(acc.b, fw, 0, pt, fsq ⊻ 56) : _acc_add!(acc.b, fw, 0, pt, fsq ⊻ 56)
-        add ? _acc_add!(acc.w, fw, 1, pt, tsq) : _acc_sub!(acc.w, fw, 1, pt, tsq)
-        add ? _acc_sub!(acc.w, fw, 1, pt, fsq) : _acc_add!(acc.w, fw, 1, pt, fsq)
+        fb_to  = _feat(0, pt, tsq ⊻ 56)
+        fb_frm = _feat(0, pt, fsq ⊻ 56)
+        fw_to  = _feat(1, pt, tsq)
+        fw_frm = _feat(1, pt, fsq)
         if moveiscapture(b, m)
-            cp = ptype(pieceon(b, to(m))).val - 1
-            add ? _acc_sub!(acc.b, fw, 1, cp, tsq ⊻ 56) : _acc_add!(acc.b, fw, 1, cp, tsq ⊻ 56)
-            add ? _acc_sub!(acc.w, fw, 0, cp, tsq)       : _acc_add!(acc.w, fw, 0, cp, tsq)
+            cp     = ptype(pieceon(b, to(m))).val - 1
+            fb_cap = _feat(1, cp, tsq ⊻ 56)
+            fw_cap = _feat(0, cp, tsq)
+            @inbounds @simd for j in 1:NNUE_HL
+                δ = Int32(fw[j, fb_to]) - Int32(fw[j, fb_frm]) - Int32(fw[j, fb_cap])
+                acc.b[j] += add ? δ : -δ
+            end
+            @inbounds @simd for j in 1:NNUE_HL
+                δ = Int32(fw[j, fw_to]) - Int32(fw[j, fw_frm]) - Int32(fw[j, fw_cap])
+                acc.w[j] += add ? δ : -δ
+            end
+        else
+            @inbounds @simd for j in 1:NNUE_HL
+                δ = Int32(fw[j, fb_to]) - Int32(fw[j, fb_frm])
+                acc.b[j] += add ? δ : -δ
+            end
+            @inbounds @simd for j in 1:NNUE_HL
+                δ = Int32(fw[j, fw_to]) - Int32(fw[j, fw_frm])
+                acc.w[j] += add ? δ : -δ
+            end
         end
     end
 end
