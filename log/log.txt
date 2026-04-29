@@ -1,5 +1,45 @@
 === SPRT Results Log ===
 
+454aefe — Correct static eval based on TT.
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (15+0.15, 4t, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 14.87 +/- 11.16, nElo: 24.07 +/- 18.03
+LOS: 99.56 %, DrawRatio: 44.04 %, PairsRatio: 1.33
+Games: 1426, Wins: 411, Losses: 350, Draws: 665, Points: 743.5 (52.14 %)
+Ptnml(0-2): [23, 148, 314, 201, 27], WL/DD Ratio: 0.99
+LLR: 2.23 (101.5%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
+74a2d28 — Add PVS
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (10+0.1, NULL, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 17.72 +/- 12.93, nElo: 26.38 +/- 19.21
+LOS: 99.64 %, DrawRatio: 40.45 %, PairsRatio: 1.29
+Games: 1256, Wins: 370, Losses: 306, Draws: 580, Points: 660.0 (52.55 %)
+Ptnml(0-2): [25, 138, 254, 170, 41], WL/DD Ratio: 0.87
+LLR: 2.21 (100.8%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
+6b8daef — Simplify depth parameters.
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (15+0.15, NULL, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 4.12 +/- 5.69, nElo: 6.32 +/- 8.74
+LOS: 92.19 %, DrawRatio: 42.23 %, PairsRatio: 1.06
+Games: 6076, Wins: 1757, Losses: 1685, Draws: 2634, Points: 3074.0 (50.59 %)
+Ptnml(0-2): [128, 723, 1283, 757, 147], WL/DD Ratio: 1.22
+LLR: 0.66 (30.2%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
+4e3fb3c — Add pawn correction history
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (15+0.15, NULL, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 28.54 +/- 16.72, nElo: 43.20 +/- 25.17
+LOS: 99.96 %, DrawRatio: 39.07 %, PairsRatio: 1.62
+Games: 732, Wins: 240, Losses: 180, Draws: 312, Points: 396.0 (54.10 %)
+Ptnml(0-2): [14, 71, 143, 117, 21], WL/DD Ratio: 1.31
+LLR: 2.25 (102.6%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
 0ec5914 — SMP . Result between 2 threads vs 1 thread
 --------------------------------------------------
 Results of DIPUTEXP-SMP vs Diputs (10+0.1, NULL - 4t, 256MB, UHO_Lichess_4852_v1.epd):
@@ -240,12 +280,4 @@ Ptnml(0-2): [35, 258, 408, 254, 45], WL/DD Ratio: 0.85
 LLR: -0.11 (-5.2%) (-2.20, 2.20) [0.00, 10.00]
 --------------------------------------------------
 
-454aefe — Correct static eval based on TT.
---------------------------------------------------
-Results of DIPUTEXP vs Diputs (15+0.15, 4t, 256MB, UHO_Lichess_4852_v1.epd):
-Elo: 14.87 +/- 11.16, nElo: 24.07 +/- 18.03
-LOS: 99.56 %, DrawRatio: 44.04 %, PairsRatio: 1.33
-Games: 1426, Wins: 411, Losses: 350, Draws: 665, Points: 743.5 (52.14 %)
-Ptnml(0-2): [23, 148, 314, 201, 27], WL/DD Ratio: 0.99
-LLR: 2.23 (101.5%) (-2.20, 2.20) [0.00, 10.00]
---------------------------------------------------
+
