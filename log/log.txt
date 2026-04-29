@@ -1,5 +1,24 @@
 === SPRT Results Log ===
 
+09ee592 - Minor piece correction history
+--------------------------------------------------
+Results of DIPUTS vs Stash-30-Linux-64 (3+2, NULL - 1t, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 74.06 +/- 50.87, nElo: 103.00 +/- 68.10
+LOS: 99.85 %, DrawRatio: 36.00 %, PairsRatio: 3.57
+Games: 100, Wins: 44, Losses: 23, Draws: 33, Points: 60.5 (60.50 %)
+Ptnml(0-2): [3, 4, 18, 19, 6], WL/DD Ratio: 2.60
+--------------------------------------------------
+
+4e3fb3c — Add pawn correction history
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (15+0.15, NULL, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 28.54 +/- 16.72, nElo: 43.20 +/- 25.17
+LOS: 99.96 %, DrawRatio: 39.07 %, PairsRatio: 1.62
+Games: 732, Wins: 240, Losses: 180, Draws: 312, Points: 396.0 (54.10 %)
+Ptnml(0-2): [14, 71, 143, 117, 21], WL/DD Ratio: 1.31
+LLR: 2.25 (102.6%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
 454aefe — Correct static eval based on TT.
 --------------------------------------------------
 Results of DIPUTEXP vs Diputs (15+0.15, 4t, 256MB, UHO_Lichess_4852_v1.epd):
@@ -30,15 +49,7 @@ Ptnml(0-2): [128, 723, 1283, 757, 147], WL/DD Ratio: 1.22
 LLR: 0.66 (30.2%) (-2.20, 2.20) [0.00, 10.00]
 --------------------------------------------------
 
-4e3fb3c — Add pawn correction history
---------------------------------------------------
-Results of DIPUTEXP vs Diputs (15+0.15, NULL, 256MB, UHO_Lichess_4852_v1.epd):
-Elo: 28.54 +/- 16.72, nElo: 43.20 +/- 25.17
-LOS: 99.96 %, DrawRatio: 39.07 %, PairsRatio: 1.62
-Games: 732, Wins: 240, Losses: 180, Draws: 312, Points: 396.0 (54.10 %)
-Ptnml(0-2): [14, 71, 143, 117, 21], WL/DD Ratio: 1.31
-LLR: 2.25 (102.6%) (-2.20, 2.20) [0.00, 10.00]
---------------------------------------------------
+
 
 0ec5914 — SMP . Result between 2 threads vs 1 thread
 --------------------------------------------------
