@@ -1,4 +1,14 @@
 === SPRT Results Log ===
+7cd5d1d - Optimize inference
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (10+0.1, NULL, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 22.31 +/- 14.60, nElo: 34.42 +/- 22.45
+LOS: 99.87 %, DrawRatio: 43.26 %, PairsRatio: 1.49
+Games: 920, Wins: 284, Losses: 225, Draws: 411, Points: 489.5 (53.21 %)
+Ptnml(0-2): [18, 87, 199, 130, 26], WL/DD Ratio: 1.05
+LLR: 2.20 (100.3%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
 
 09ee592 - Minor piece correction history
 --------------------------------------------------

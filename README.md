@@ -3,16 +3,20 @@
 A non-competitive UCI chess engine for trolling written in Julia.
 I have ~~1 week~~ 2 weeks to work on this project to rehash Julia.
 Julia, like Python, is highly portable and easy on the eye.
+Movegen will be written last 👉. 
 
 Requirements: [Julia](https://julialang.org/downloads/) 1.9+. Make sure to add it to your PATH.
 
 ## Strength
 This engine plays chess with an Elo.
-100 games between commit 09ee592 against Stash 30 (~3164), 2:00+1, UHO_Lichess_4852_v1.epd.
+
+100 games between commit 09ee592 against Stash 32 (~3250), 2:00+1, UHO_Lichess_4852_v1.epd.
 
 ```
-Score of diputs.sh vs stash-30.0-linux-64: 49 - 24 - 27 [0.625]
-Elo difference: 88.7 +/- 60.0, LOS: 99.8 %, DrawRatio: 27.0 %
+Score of diputs.sh vs stash-32.0-linux-64: 48 - 32 - 40 [0.567]
+...      diputs.sh playing White: 31 - 8 - 21  [0.692] 60
+...      diputs.sh playing Black: 17 - 24 - 19  [0.442] 60
+Elo difference: 46.6 +/- 51.3, LOS: 96.3 %, DrawRatio: 33.3 %
 ```
 
 ## Setup (one time)
