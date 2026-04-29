@@ -173,6 +173,36 @@ const search_deadline = Ref{UInt64}(typemax(UInt64))
 
 """__________________________________________________
 
+    Correction History
+__________________________________________________"""
+
+# Pawn correction history: adjusts eval based on previous search outcomes
+const _CORR_SIZE    = 1 << 16
+const _CORR_MASK    = _CORR_SIZE - 1
+const _CORR_TABLE   = zeros(Int16, 2, _CORR_SIZE)  # [white, black]
+const _CORR_GRAVITY = 256
+const _CORR_WEIGHT  = 64    # 64/256 = 0.25 EMA learning rate
+const _CORR_CLAMP   = 16384 # ±64 cp when divided by 256
+
+@inline function corr_value(key::UInt64, color::Int)::Int
+    Int(_CORR_TABLE[color, Int(key & _CORR_MASK) + 1])
+end
+
+"""
+    Gravity moving average update:
+    new = old + 0.25 * (bonus - old)
+        = 0.75 * old + 0.25 * bonus
+    Then clamp to [-_CORR_CLAMP, _CORR_CLAMP].
+"""
+@inline function corr_update!(key::UInt64, color::Int, bonus::Int)
+    idx  = Int(key & _CORR_MASK) + 1
+    old  = Int(_CORR_TABLE[color, idx])
+    newv = clamp(old + (bonus - old) * _CORR_WEIGHT ÷ _CORR_GRAVITY, -_CORR_CLAMP, _CORR_CLAMP)
+    _CORR_TABLE[color, idx] = Int16(newv)
+end
+
+"""__________________________________________________
+
     Move Ordering
 __________________________________________________"""
 
@@ -334,6 +364,7 @@ function negamax(
     end
 
     in_check = ischeck(b)
+    stm      = sidetomove(b) == WHITE ? 1 : 2
 
     if depth == 0
         if !in_check
@@ -359,13 +390,20 @@ function negamax(
     # Internal iterative reduction
     depth -= (tt_best == Move(0) && depth ≥ 3) ? 1 : 0
 
-    # Adjust eval with TT score if available
-    eval = nnue_eval(nnue_accs[tid], b, nnue_net)
+    # Raw NNUE eval
+    raw_eval = nnue_eval(nnue_accs[tid], b, nnue_net)
+
+    # Apply pawn correction history to raw eval
+    eval = raw_eval + corr_value(b.bytype[1].val, stm) ÷ 256
+
+    # TT score overrides if it provides a tighter bound
     if tt_flag == TT_EXACT ||
        (tt_flag == TT_LOWER && tt_score > eval) ||
        (tt_flag == TT_UPPER && tt_score < eval)
         eval = tt_score
     end
+    
+    eval = clamp(eval, -(MATE_SCORE - TT_MAX_PLY), MATE_SCORE - TT_MAX_PLY)
     eval_stack[ply + 1, tid] = eval
     improving = !in_check && ply ≥ 3 && eval > eval_stack[ply - 1, tid]
 
@@ -397,7 +435,6 @@ function negamax(
 
     k1  = ply ≤ 256 ? killers[1, ply, tid] : Move(0)
     k2  = ply ≤ 256 ? killers[2, ply, tid] : Move(0)
-    stm = sidetomove(b) == WHITE ? 1 : 2
     prev_pt,  prev_to  = ply > 1 ? move_stack[ply, tid]     : (0, 0)
     prev2_pt, prev2_to = ply > 2 ? move_stack[ply - 1, tid] : (0, 0)
 
@@ -459,6 +496,7 @@ function negamax(
 
                 if α ≥ β
                     flag = TT_LOWER
+
                     if is_quiet
                         if ply ≤ 256
                             killers[2, ply, tid] = killers[1, ply, tid]
@@ -479,6 +517,16 @@ function negamax(
         end
 
         is_quiet && push!(searched_quiets, m)
+    end
+
+    if !search_stopped[] && !in_check && depth ≥ 2
+        diff = best_score - raw_eval
+        best_is_capture = best_move ≠ Move(0) && moveiscapture(b, best_move)
+        fail_high = best_move ≠ Move(0)                        # a move beat alpha
+        direction_ok = fail_high ? (diff > 0) : (diff < 0)   # fail-high: up only; fail-low: down only
+        if !best_is_capture && direction_ok
+            corr_update!(b.bytype[1].val, stm, clamp(diff * depth * 256, -_CORR_CLAMP, _CORR_CLAMP))
+        end
     end
 
     !search_stopped[] && store_tt(b.key, depth, best_score, flag, is_pv_node, best_move, ply)
