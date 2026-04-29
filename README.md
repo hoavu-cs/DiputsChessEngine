@@ -11,9 +11,9 @@ A quick 100 games between commit 6b8daef against Stash 30 (~3164), 3+2. UHO_Lich
 
 ```
 Results of DIPUTS vs Stash-30-Linux-64 (3+2, NULL - 1t, 256MB, UHO_Lichess_4852_v1.epd):
-Elo: 76.21 +/- 56.07, nElo: 102.87 +/- 72.59
-LOS: 99.73 %, DrawRatio: 36.36 %, PairsRatio: 3.67
-Games: 88, Wins: 40, Losses: 21, Draws: 27, Points: 53.5 (60.80 %)
+Elo: 74.06 +/- 50.87, nElo: 103.00 +/- 68.10
+LOS: 99.85 %, DrawRatio: 36.00 %, PairsRatio: 3.57
+Games: 100, Wins: 44, Losses: 23, Draws: 33, Points: 60.5 (60.50 %)
 ```
 
 ## Setup (one time)
