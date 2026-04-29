@@ -23,6 +23,7 @@ julia --project=. -e 'import Pkg; Pkg.instantiate()'
 ```
 
 ## Running using Julia Directly
+You can run the engine directly from the terminal.
 
 ```bash
 julia --project=. src/uci.jl
@@ -40,7 +41,7 @@ go depth 20
 quit
 ```
 
-## Adding to a GUI using Wrapper Script
+## Running using a Wrapper Script and GUI
 
 Point your UCI-compatible GUI (Arena, Cutechess, En Croissant, Nibbler etc.) to the wrapper script. For single-threaded version:
 ```
@@ -77,6 +78,8 @@ make it executable, and then point your GUI to it.
 Results of DIPUTEXP-SMP vs Diputs (10+0.1, NULL - 4t, 256MB, UHO_Lichess_4852_v1.epd):
 Elo: 51.52 +/- 23.51, nElo: 79.94 +/- 35.89
 ```
+
+
 
 ## License
 
