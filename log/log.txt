@@ -1,4 +1,9 @@
 === SPRT Results Log ===
+a8ea385 — Add double extension and multicut
+--------------------------------------------------
+(no SPRT yet)
+--------------------------------------------------
+
 7ccfcbc — Singular Extension
 --------------------------------------------------
 Results of DIPUTEXP vs Diputs (15+0.15, NULL, 256MB, UHO_Lichess_4852_v1.epd):
