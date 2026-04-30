@@ -500,6 +500,11 @@ function negamax(
                                  ply, key_history, tid; excluded_move = m)
             if sing_score < singular_β
                 ext = 1
+                if sing_score < singular_β - 40 
+                    ext += 1 # double extension
+                end
+            elseif singular_β ≥ β
+                return singular_β  # multicut
             end
         end
         new_depth = depth - 1 + ext
