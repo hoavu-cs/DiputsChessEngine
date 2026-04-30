@@ -1,4 +1,13 @@
 === SPRT Results Log ===
+7ccfcbc — Singular Extension
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (15+0.15, NULL, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 16.07 +/- 11.81, nElo: 25.55 +/- 18.74
+LOS: 99.62 %, DrawRatio: 43.33 %, PairsRatio: 1.35
+Games: 1320, Wins: 392, Losses: 331, Draws: 597, Points: 690.5 (52.31 %)
+Ptnml(0-2): [23, 136, 286, 187, 28], WL/DD Ratio: 1.09
+LLR: 2.22 (101.1%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
 7cd5d1d - Optimize inference
 --------------------------------------------------
 Results of DIPUTEXP vs Diputs (10+0.1, NULL, 256MB, UHO_Lichess_4852_v1.epd):
