@@ -69,7 +69,7 @@ function compute_key(pos::Board)::UInt64
     pos.stm == 1        && (k ⊻= _ZOB_STM)
     pos.ep_square != 64 && (k ⊻= _zob_ep(pos.ep_square))
     k ⊻= _zob_castle(pos.castle_rights)
-    k
+    return k
 end
 
 # ============================================================
@@ -90,7 +90,7 @@ MoveList(N = 256) = MoveList(Vector{UInt64}(undef, N), 0)
 - `promo`: promotion piece type (0=none, 1=Q, 2=R, 3=B, 4=N)
 - `flag`: move flag (0=quiet, 1=double-push, 2=king-castle, 3=queen-castle, 4=en-passant)
 """
-function push_move!(ml::MoveList, from::Int, to::Int, promo::Int, flag::Int)
+@inline function push_move!(ml::MoveList, from::Int, to::Int, promo::Int, flag::Int)
     ml.count += 1
     ml.moves[ml.count] = UInt64(from) | (UInt64(to) << 6) | (UInt64(promo) << 12) | (UInt64(flag) << 16)
 end
@@ -99,13 +99,13 @@ end
 # Bit helpers
 # ============================================================
 
-file(sq) = sq & 7
-rank(sq) = sq >> 3
-sq(f, r) = r * 8 + f
-bit(sq)  = UInt64(1) << sq                                      # single-set bitboard
+@inline file(sq) = sq & 7
+@inline rank(sq) = sq >> 3
+@inline sq(f, r) = r * 8 + f
+@inline bit(sq)  = UInt64(1) << sq
 
-poplsb(bb) = Int(trailing_zeros(bb))                            # pop least-significant bit index
-poplsb!(bb::UInt64) = (Int(trailing_zeros(bb)), bb & (bb - 1))  # pop + clear
+@inline poplsb(bb) = Int(trailing_zeros(bb))
+@inline poplsb!(bb::UInt64) = (Int(trailing_zeros(bb)), bb & (bb - 1))
 
 # ============================================================
 # Precomputed attack tables
@@ -161,8 +161,8 @@ end
 
 
 # Generate pseudo-legal moves for pawns
-function gen_pawn!(ml::MoveList, pos::Board, from::Int,
-                   color::Int, our_bb::UInt64, their_bb::UInt64)
+@inline function gen_pawn!(ml::MoveList, pos::Board, from::Int,
+                            color::Int, their_bb::UInt64)
     n = from + 1  # Julia arrays are 1-indexed, squares are 0-indexed
 
     # Pushes
@@ -172,11 +172,12 @@ function gen_pawn!(ml::MoveList, pos::Board, from::Int,
         # Promoting?
         promo_rank = color == 0 ? 7 : 0            
         if rank(to) == promo_rank
-            for promo in 1:4                       
-                push_move!(ml, from, to, promo, 0)
-            end
+            push_move!(ml, from, to, 1, 0)
+            push_move!(ml, from, to, 2, 0)
+            push_move!(ml, from, to, 3, 0)
+            push_move!(ml, from, to, 4, 0)
         else
-            push_move!(ml, from, to, 0, 0)         
+            push_move!(ml, from, to, 0, 0)
             # Double push: only from starting rank, and both squares must be empty
             start_rank = color == 0 ? 1 : 6                                 
             if rank(from) == start_rank
@@ -193,11 +194,12 @@ function gen_pawn!(ml::MoveList, pos::Board, from::Int,
         to, cap_bb = poplsb!(cap_bb)                           
         promo_rank = color == 0 ? 7 : 0
         if rank(to) == promo_rank
-            for promo in 1:4                               
-                push_move!(ml, from, to, promo, 0)
-            end
+            push_move!(ml, from, to, 1, 0)
+            push_move!(ml, from, to, 2, 0)
+            push_move!(ml, from, to, 3, 0)
+            push_move!(ml, from, to, 4, 0)
         else
-            push_move!(ml, from, to, 0, 0)               
+            push_move!(ml, from, to, 0, 0)
         end
     end
 
@@ -208,7 +210,7 @@ function gen_pawn!(ml::MoveList, pos::Board, from::Int,
 end
 
 # Generate pseudo-legal moves for knights
-function gen_knight!(ml::MoveList, from::Int, our_bb::UInt64)
+@inline function gen_knight!(ml::MoveList, from::Int, our_bb::UInt64)
     targets = KNIGHT_ATTACKS[from + 1] & ~our_bb
     while targets != 0
         to, targets = poplsb!(targets)
@@ -338,8 +340,8 @@ function init_magic_tables!()
         rm = _rook_mask(s);   rn = count_ones(rm)
         BISHOP_MASKS[s+1] = bm;  BISHOP_SHIFTS[s+1] = 64 - bn
         ROOK_MASKS[s+1]   = rm;  ROOK_SHIFTS[s+1]   = 64 - rn
-        BISHOP_TABLE[s+1] = zeros(UInt64, 1 << bn)
-        ROOK_TABLE[s+1]   = zeros(UInt64, 1 << rn)
+        BISHOP_TABLE[s+1] = Vector{UInt64}(undef, 1 << bn)
+        ROOK_TABLE[s+1]   = Vector{UInt64}(undef, 1 << rn)
         sub = UInt64(0)
         for _ in 1:(1 << bn)
             idx = Int((sub * BISHOP_MAGIC[s+1]) >> BISHOP_SHIFTS[s+1]) + 1
@@ -355,9 +357,15 @@ function init_magic_tables!()
     end
 end
 
+# Magic lookup: (occ & mask) keeps only the bn relevant blocker bits.
+# Multiplying by the magic concentrates them into the top bn bits of the 64-bit product:
+#   [ bn bits | 000...000 ]
+# Shifting right by (64 - bn) moves them to the bottom:
+#   [ 000...000 | bn bits ]  →  index in 0 .. 2^bn - 1
 @inline bishop_attacks(s::Int, occ::UInt64) =
     @inbounds BISHOP_TABLE[s+1][Int(((occ & BISHOP_MASKS[s+1]) * BISHOP_MAGIC[s+1]) >> BISHOP_SHIFTS[s+1]) + 1]
 
+# Same magic pattern as bishop_attacks above.
 @inline rook_attacks(s::Int, occ::UInt64) =
     @inbounds ROOK_TABLE[s+1][Int(((occ & ROOK_MASKS[s+1]) * ROOK_MAGIC[s+1]) >> ROOK_SHIFTS[s+1]) + 1]
 
@@ -368,25 +376,22 @@ const _BK_PATH = bit(61) | bit(62)                  # F8, G8
 const _BQ_PATH = bit(57) | bit(58) | bit(59)        # B8, C8, D8
 
 # Check if a square is attacked by the opponent
-function is_attacked(pos::Board, s::Int, by::Int)
+@inline function is_attacked(pos::Board, s::Int, by::Int)
+    bb  = pos.bb
     occ = pos.occupied
-    w = (by == 0)
-
-    pawn_bb = w ? pos.bb[BB_WP] : pos.bb[BB_BP]
-    (PAWN_ATTACKS[2 - by][s + 1] & pawn_bb) != 0 && return true
-
-    knight_bb = w ? pos.bb[BB_WN] : pos.bb[BB_BN]
-    (KNIGHT_ATTACKS[s + 1] & knight_bb) != 0 && return true
-
-    king_bb = w ? pos.bb[BB_WK] : pos.bb[BB_BK]
-    (KING_ATTACKS[s + 1] & king_bb) != 0 && return true
-
-    diag_bb = w ? (pos.bb[BB_WB] | pos.bb[BB_WQ]) : (pos.bb[BB_BB] | pos.bb[BB_BQ])
-    (bishop_attacks(s, occ) & diag_bb) != 0 && return true
-
-    orth_bb = w ? (pos.bb[BB_WR] | pos.bb[BB_WQ]) : (pos.bb[BB_BR] | pos.bb[BB_BQ])
-    (rook_attacks(s, occ) & orth_bb) != 0 && return true
-
+    if by == 0
+        (PAWN_ATTACKS[2][s + 1] & bb[BB_WP]) != 0 && return true
+        (KNIGHT_ATTACKS[s + 1]  & bb[BB_WN]) != 0 && return true
+        (KING_ATTACKS[s + 1]    & bb[BB_WK]) != 0 && return true
+        (bishop_attacks(s, occ) & (bb[BB_WB] | bb[BB_WQ])) != 0 && return true
+        (rook_attacks(s, occ)   & (bb[BB_WR] | bb[BB_WQ])) != 0 && return true
+    else
+        (PAWN_ATTACKS[1][s + 1] & bb[BB_BP]) != 0 && return true
+        (KNIGHT_ATTACKS[s + 1]  & bb[BB_BN]) != 0 && return true
+        (KING_ATTACKS[s + 1]    & bb[BB_BK]) != 0 && return true
+        (bishop_attacks(s, occ) & (bb[BB_BB] | bb[BB_BQ])) != 0 && return true
+        (rook_attacks(s, occ)   & (bb[BB_BR] | bb[BB_BQ])) != 0 && return true
+    end
     return false
 end
 
@@ -405,7 +410,7 @@ end
 end
 
 # Generate pseudo-legal moves for king
-function gen_king!(ml::MoveList, pos::Board, from::Int, color::Int, our_bb::UInt64)
+@inline function gen_king!(ml::MoveList, pos::Board, from::Int, color::Int, our_bb::UInt64)
     targets = KING_ATTACKS[from + 1] & ~our_bb
     while targets != 0
         to, targets = poplsb!(targets)
@@ -414,30 +419,29 @@ function gen_king!(ml::MoveList, pos::Board, from::Int, color::Int, our_bb::UInt
 
     occ = pos.occupied
     opp = 1 - color
-    safe(s) = !is_attacked(pos, s, opp)
 
     if color == 0
         from == 4   || return
-        safe(4)     || return  # king in check — no castling
+        !is_attacked(pos, 4, opp)  || return
         (pos.castle_rights & 1) != 0 && (occ & _WK_PATH) == 0 &&
             (pos.bb[BB_WR] & bit(7)) != 0 &&
-            safe(5) && safe(6) && push_move!(ml, 4, 6, 0, 2)
+            !is_attacked(pos, 5, opp) && !is_attacked(pos, 6, opp) && push_move!(ml, 4, 6, 0, 2)
         (pos.castle_rights & 2) != 0 && (occ & _WQ_PATH) == 0 &&
             (pos.bb[BB_WR] & bit(0)) != 0 &&
-            safe(3) && safe(2) && push_move!(ml, 4, 2, 0, 3)
+            !is_attacked(pos, 3, opp) && !is_attacked(pos, 2, opp) && push_move!(ml, 4, 2, 0, 3)
     else
         from == 60  || return
-        safe(60)    || return  # king in check — no castling
+        !is_attacked(pos, 60, opp) || return
         (pos.castle_rights & 4) != 0 && (occ & _BK_PATH) == 0 &&
             (pos.bb[BB_BR] & bit(63)) != 0 &&
-            safe(61) && safe(62) && push_move!(ml, 60, 62, 0, 2)
+            !is_attacked(pos, 61, opp) && !is_attacked(pos, 62, opp) && push_move!(ml, 60, 62, 0, 2)
         (pos.castle_rights & 8) != 0 && (occ & _BQ_PATH) == 0 &&
             (pos.bb[BB_BR] & bit(56)) != 0 &&
-            safe(59) && safe(58) && push_move!(ml, 60, 58, 0, 3)
+            !is_attacked(pos, 59, opp) && !is_attacked(pos, 58, opp) && push_move!(ml, 60, 58, 0, 3)
     end
 end
 
-function gen_bishop!(ml::MoveList, pos::Board, from::Int, our_bb::UInt64)
+@inline function gen_bishop!(ml::MoveList, pos::Board, from::Int, our_bb::UInt64)
     targets = bishop_attacks(from, pos.occupied) & ~our_bb
     while targets != 0
         to, targets = poplsb!(targets)
@@ -445,7 +449,7 @@ function gen_bishop!(ml::MoveList, pos::Board, from::Int, our_bb::UInt64)
     end
 end
 
-function gen_rook!(ml::MoveList, pos::Board, from::Int, our_bb::UInt64)
+@inline function gen_rook!(ml::MoveList, pos::Board, from::Int, our_bb::UInt64)
     targets = rook_attacks(from, pos.occupied) & ~our_bb
     while targets != 0
         to, targets = poplsb!(targets)
@@ -459,30 +463,32 @@ end
 
 function generate_moves!(ml::MoveList, pos::Board)
     ml.count = 0
-    c = pos.stm
+    bb    = pos.bb
+    c     = pos.stm
+    base  = c * 6
     our   = c == 0 ? pos.white_bb : pos.black_bb
     their = c == 0 ? pos.black_bb : pos.white_bb
 
-    pcs = c == 0 ? pos.bb[BB_WP] : pos.bb[BB_BP]
-    while pcs != 0; from, pcs = poplsb!(pcs); gen_pawn!(ml, pos, from, c, our, their); end
+    pcs = bb[base + 1]
+    while pcs != 0; from, pcs = poplsb!(pcs); gen_pawn!(ml, pos, from, c, their); end
 
-    pcs = c == 0 ? pos.bb[BB_WN] : pos.bb[BB_BN]
+    pcs = bb[base + 2]
     while pcs != 0; from, pcs = poplsb!(pcs); gen_knight!(ml, from, our); end
 
-    pcs = c == 0 ? pos.bb[BB_WB] : pos.bb[BB_BB]
+    pcs = bb[base + 3]
     while pcs != 0; from, pcs = poplsb!(pcs); gen_bishop!(ml, pos, from, our); end
 
-    pcs = c == 0 ? pos.bb[BB_WR] : pos.bb[BB_BR]
+    pcs = bb[base + 4]
     while pcs != 0; from, pcs = poplsb!(pcs); gen_rook!(ml, pos, from, our); end
 
-    pcs = c == 0 ? pos.bb[BB_WQ] : pos.bb[BB_BQ]
+    pcs = bb[base + 5]
     while pcs != 0
         from, pcs = poplsb!(pcs)
         gen_bishop!(ml, pos, from, our)
         gen_rook!(ml, pos, from, our)
     end
 
-    pcs = c == 0 ? pos.bb[BB_WK] : pos.bb[BB_BK]
+    pcs = bb[base + 6]
     while pcs != 0; from, pcs = poplsb!(pcs); gen_king!(ml, pos, from, c, our); end
 end
 
@@ -710,9 +716,10 @@ end
 function undomove!(pos::Board, u::UndoInfo)
     pos.key = u.key
     if u.move == UInt64(0)
-        pos.stm           = 1 - pos.stm
-        pos.castle_rights = u.castle_rights
-        pos.ep_square     = u.ep_square
+        pos.stm            = 1 - pos.stm
+        pos.castle_rights  = u.castle_rights
+        pos.ep_square      = u.ep_square
+        pos.halfmove_clock = u.halfmove_clock
         return
     end
 

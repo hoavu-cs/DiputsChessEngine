@@ -72,7 +72,7 @@ end
     return (entry.depth ≥ depth, score, entry.flag, entry.is_pv, entry.best, Int(entry.depth))
 end
 
-@inline function store_tt(key::UInt64, depth::Int, score::Int, flag::Int8, is_pv::Bool, best::Move, ply::Int)
+@inline function store_tt(key::UInt64, depth::Int, score::Int, flag::Int8, is_pv::Bool, best::UInt64, ply::Int)
     idx    = Int(key & tt_mask) + 1
     stored = score
     if abs(score) > MATE_SCORE - TT_MAX_PLY
@@ -242,10 +242,10 @@ const _SCORE_KILLER  =    90_000
 
 @inline function score_move(
     b::Board,
-    m::Move,
-    tt_move::Move,
-    k1::Move,
-    k2::Move,
+    m::UInt64,
+    tt_move::UInt64,
+    k1::UInt64,
+    k2::UInt64,
     ply::Int;
     tid::Int = 1,
 )::Int
@@ -279,9 +279,9 @@ function sort_moves!(
     b::Board,
     ml::AbstractVector{Move},
     ply::Int,
-    tt_best::Move,
-    k1::Move,
-    k2::Move,
+    tt_best::UInt64,
+    k1::UInt64,
+    k2::UInt64,
     tid::Int,
 )
     n      = length(ml)
@@ -379,7 +379,7 @@ function negamax(
     ply::Int,
     key_history::Vector{UInt64},
     tid::Int;
-    excluded_move::Move = Move(0),
+    excluded_move::UInt64 = Move(0),
 )::Int where {NT <: NodeType}
 
     is_singular = excluded_move ≠ Move(0)
@@ -636,7 +636,7 @@ end
     Iterative Deepening Root
 __________________________________________________"""
 
-function search(b::Board, max_depth::Int, tid::Int)::Move
+function search(b::Board, max_depth::Int, tid::Int)::UInt64
     hv  = @view history[:, :, :, tid]
     cv  = @view cont_hist[:, :, :, :, :, tid]
     cv2 = @view cont_hist2[:, :, :, :, :, tid]
@@ -767,7 +767,7 @@ end
     SMP
 __________________________________________________"""
 
-function smp_search(b::Board, max_depth::Int, time_limit::Int)::Move
+function smp_search(b::Board, max_depth::Int, time_limit::Int)::UInt64
     start_ns = time_ns()
     if time_limit ≥ typemax(Int) >> 20
         search_deadline[] = start_ns + 30_000_000_000
