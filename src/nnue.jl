@@ -5,7 +5,7 @@ const NNUE_QA    = 255
 const NNUE_QB    = 64
 
 struct NNUENet
-    fw::Matrix{Int16}   # NNUE_HL × NNUE_INPUT  (column j = feature j weight vector)
+    fw::Matrix{Int16}   # NNUE_HL * NNUE_INPUT  (column j = feature j weight vector)
     fb::Vector{Int16}   # NNUE_HL
     ow::Vector{Int16}   # 2 * NNUE_HL
     ob::Int16
@@ -31,8 +31,8 @@ mutable struct Accumulator
 end
 Accumulator() = Accumulator(zeros(Int32, NNUE_HL), zeros(Int32, NNUE_HL))
 
-# Chess.jl sq.val (1-indexed, column-major, rank 8 first) → standard 0-based (A1=0, H8=63)
-@inline _nnue_sq(v::Int) = ((7 - ((v - 1) & 7)) << 3) | ((v - 1) >> 3)
+# Our Square.val is 1-indexed row-major (A1=1…H8=64) → standard 0-based (A1=0…H8=63)
+@inline _nnue_sq(v::Int) = v - 1
 
 # 1-based feature index:  side=0 own / 1 opponent,  pt=0..5 (Pawn..King),  sq=0..63
 @inline _feat(side::Int, pt::Int, sq::Int) = side * 384 + pt * 64 + sq + 1
@@ -144,7 +144,7 @@ end
     fw   = net.fw
     fsq  = _nnue_sq(from(m).val)
     tsq  = _nnue_sq(to(m).val)
-    ep_sq = _nnue_sq(((to(m).val - 1) >> 3) * 8 + ((from(m).val - 1) & 7) + 1)
+    ep_sq = ((from(m).val - 1) >> 3) * 8 + ((to(m).val - 1) & 7)
 
     if pcolor(pieceon(b, from(m))) == WHITE
         add ? _acc_sub!(acc.w, fw, 0, 0, fsq)        : _acc_add!(acc.w, fw, 0, 0, fsq)
@@ -168,14 +168,14 @@ end
     fsq = _nnue_sq(from(m).val)
     tsq = _nnue_sq(to(m).val)
 
-    from_rank = (from(m).val - 1) & 7
-    to_file   = (to(m).val   - 1) >> 3
-    if to_file == 6  # kingside
-        rfsq = _nnue_sq(7 * 8 + from_rank + 1)
-        rtsq = _nnue_sq(5 * 8 + from_rank + 1)
+    from_rank = (from(m).val - 1) >> 3   # rank 0..7
+    to_file   = (to(m).val   - 1) & 7    # file 0..7
+    if to_file == 6  # kingside (king lands on G-file)
+        rfsq = from_rank * 8 + 7         # rook from H-file
+        rtsq = from_rank * 8 + 5         # rook to F-file
     else             # queenside
-        rfsq = _nnue_sq(from_rank + 1)
-        rtsq = _nnue_sq(3 * 8 + from_rank + 1)
+        rfsq = from_rank * 8             # rook from A-file
+        rtsq = from_rank * 8 + 3         # rook to D-file
     end
 
     if pcolor(pieceon(b, from(m))) == WHITE
@@ -231,10 +231,9 @@ end
 # Incremental update in place. Call BEFORE domove!(b, m).
 function update!(acc::Accumulator, b::Board, m::Move, net::NNUENet)
     piece   = pieceon(b, from(m))
-    from_f  = (from(m).val - 1) >> 3
-    to_f    = (to(m).val   - 1) >> 3
-    is_ep   = ptype(piece) == PAWN && from_f != to_f && !moveiscapture(b, m)
-    is_cast = ptype(piece) == KING && abs(from_f - to_f) > 1
+    mflag   = Int((m >> 16) & 0xf)
+    is_ep   = mflag == 4
+    is_cast = ptype(piece) == KING && abs(((from(m).val - 1) & 7) - ((to(m).val - 1) & 7)) > 1
 
     if is_ep
         _apply_ep!(acc, b, m, net, Val(true))
@@ -250,10 +249,9 @@ end
 # Reverse the update. Call AFTER undomove!(b, u) — board is back to pre-move state.
 function undo_update!(acc::Accumulator, b::Board, m::Move, net::NNUENet)
     piece   = pieceon(b, from(m))
-    from_f  = (from(m).val - 1) >> 3
-    to_f    = (to(m).val   - 1) >> 3
-    is_ep   = ptype(piece) == PAWN && from_f != to_f && !moveiscapture(b, m)
-    is_cast = ptype(piece) == KING && abs(from_f - to_f) > 1
+    mflag   = Int((m >> 16) & 0xf)
+    is_ep   = mflag == 4
+    is_cast = ptype(piece) == KING && abs(((from(m).val - 1) & 7) - ((to(m).val - 1) & 7)) > 1
 
     if is_ep
         _apply_ep!(acc, b, m, net, Val(false))

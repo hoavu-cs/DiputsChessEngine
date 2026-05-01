@@ -3,7 +3,6 @@
 A non-competitive UCI chess engine for trolling written in Julia.
 I have ~~1 week~~ 2 weeks to work on this project to rehash Julia.
 Julia, like Python, is highly portable and easy on the eye.
-Movegen will be written last 👉 (currently using [Chess.jl](https://romstad.github.io/Chess.jl/dev/) movegen). 
 
 Requirements: [Julia](https://julialang.org/downloads/) 1.9+. Make sure to add it to your PATH.
 
