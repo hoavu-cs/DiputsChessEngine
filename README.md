@@ -9,7 +9,7 @@ Requirements: [Julia](https://julialang.org/downloads/) 1.9+. Make sure to add i
 ## Strength
 This engine plays chess with an Elo.
 
-60 games between commit a1e499a against Stash 37, 2:00+1, UHO_Lichess_4852_v1.epd, 256Mb hash each.
+60 games between commit a1e499a against Stash 37, 2:00+1, UHO_Lichess_4852_v1.epd, 1 thread, 256Mb hash each.
 ```
 Score of diputs.sh vs stash-37.0-linux-64: 34 - 11 - 15 [0.692]
 ...      diputs.sh playing White: 23 - 2 - 5  [0.850] 30
