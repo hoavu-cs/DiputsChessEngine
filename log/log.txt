@@ -1,8 +1,17 @@
 === SPRT Results Log ===
 a8ea385 — Add double extension and multicut
 --------------------------------------------------
-(no SPRT yet)
+
+a1e499a — Use pseudo-legal movegen
 --------------------------------------------------
+Results of DIPUTEXP vs Diputs (15+0.15, NULL, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 87.92 +/- 29.19, nElo: 142.71 +/- 45.30
+LOS: 100.00 %, DrawRatio: 34.51 %, PairsRatio: 3.93
+Games: 226, Wins: 86, Losses: 30, Draws: 110, Points: 141.0 (62.39 %)
+Ptnml(0-2): [0, 15, 39, 47, 12], WL/DD Ratio: 0.62
+LLR: 2.21 (100.7%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
 
 7ccfcbc — Singular Extension
 --------------------------------------------------
