@@ -1,5 +1,5 @@
-using Chess
 using Base.Threads
+include("movegen.jl")
 
 const ENGINE_NAME   = "Diputs Chess Engine"
 const ENGINE_AUTHOR = "H."
@@ -9,7 +9,7 @@ const ENGINE_AUTHOR = "H."
     Global State
 __________________________________________________"""
 
-board                        = startboard()
+board                        = from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
 game_key_history             = UInt64[board.key]
 max_depth::Int               = 99
 search_stopped::Atomic{Bool} = Atomic{Bool}(false)
@@ -28,7 +28,7 @@ function process_position(command::String)
     end
 
     if tokens[idx] == "startpos"
-        global board = startboard()
+        global board = from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
         idx += 1
     elseif tokens[idx] == "fen"
         fen_parts = String[]
@@ -38,11 +38,7 @@ function process_position(command::String)
             idx += 1
         end
         fen_str = join(fen_parts, " ")
-        global board = fromfen(fen_str)
-        if board === nothing
-            global board = startboard()
-            return
-        end
+        global board = from_fen(fen_str)
     else
         return
     end
@@ -52,11 +48,10 @@ function process_position(command::String)
     if idx ≤ length(tokens) && tokens[idx] == "moves"
         idx += 1
         while idx ≤ length(tokens)
-            try
-                move = movefromstring(tokens[idx])
+            move = parse_move(board, tokens[idx])
+            if move != Move(0)
                 domove!(board, move)
                 push!(game_key_history, board.key)
-            catch
             end
             idx += 1
         end
@@ -175,7 +170,7 @@ function uci_loop()
             elseif line == "isready"
                 println("readyok"); flush(stdout)
             elseif line == "ucinewgame"
-                global board = startboard()
+                global board = from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
                 clear_tt()
                 clear_history()
             elseif startswith(line, "position")

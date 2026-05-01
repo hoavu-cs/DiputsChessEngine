@@ -32,7 +32,7 @@ struct TTEntry
     score::Int32
     flag::Int8
     is_pv::Bool
-    best::Move
+    best::UInt64
 end
 
 const TT_ENTRY_NULL = TTEntry(0, -1, 0, TT_EMPTY, false, Move(0))
@@ -102,6 +102,10 @@ function init_lmr_table!()
 end
 
 init_lmr_table!()
+
+const _MAX_BUF_PLY = 512
+# Pre-allocated per-thread, per-ply move buffers — eliminates ~2KB alloc per node
+const _MOVE_BUFS = [[MoveList() for _ in 1:_MAX_BUF_PLY] for _ in 1:_N_THREADS]
 
 @inline function lmr_reduction(depth::Int, i::Int, in_check::Bool, is_capture::Bool, is_pv::Bool)::Int
     r = LMR_TABLE[depth, min(i, LMR_MOVES_MAX)]
@@ -212,7 +216,7 @@ const _MINOR_MASK  = _MINOR_SIZE - 1
 const _MINOR_TABLE = zeros(Int16, 2, _MINOR_SIZE)
 
 @inline function minor_key(b::Board)::UInt64
-    b.bytype[2].val ⊻ b.bytype[3].val
+    (b.bb[BB_WN] | b.bb[BB_BN]) ⊻ (b.bb[BB_WB] | b.bb[BB_BB])
 end
 
 @inline function minor_corr_value(key::UInt64, color::Int)::Int
@@ -273,7 +277,7 @@ end
 
 function sort_moves!(
     b::Board,
-    ml::Vector{Move},
+    ml::AbstractVector{Move},
     ply::Int,
     tt_best::Move,
     k1::Move,
@@ -317,27 +321,36 @@ function quiescence(b::Board, α::Int, β::Int, ply::Int, key_history::Vector{UI
         cnt ≥ 2 && return 0
     end
 
-    ischeckmate(b) && return -(MATE_SCORE - ply)
-    isstalemate(b) && return 0
-
     stand_pat = nnue_eval(nnue_accs[tid], b, nnue_net)
     stand_pat ≥ β && return stand_pat
     α = max(α, stand_pat)
 
-    captures = Move[]
-    for m in moves(b)
-        moveiscapture(b, m) && push!(captures, m)
+    cap_buf = _MOVE_BUFS[tid][min(ply, _MAX_BUF_PLY - 1) + 1]
+    generate_moves!(cap_buf, b)
+    j = 0
+    for i in 1:cap_buf.count
+        m = cap_buf.moves[i]
+        if moveiscapture(b, m)
+            j += 1
+            cap_buf.moves[j] = m
+        end
     end
-    isempty(captures) && return α
+    j == 0 && return α
+    cap_view = view(cap_buf.moves, 1:j)
 
-    sort_moves!(b, captures, ply, Move(0), Move(0), Move(0), tid)
+    sort_moves!(b, cap_view, ply, Move(0), Move(0), Move(0), tid)
 
     best = stand_pat
-    for m in captures
+    for m in cap_view
         search_stopped[] && break
 
         update!(nnue_accs[tid], b, m, nnue_net)
         u  = domove!(b, m)
+        if was_illegal(b)
+            undomove!(b, u)
+            undo_update!(nnue_accs[tid], b, m, nnue_net)
+            continue
+        end
         push!(key_history, b.key)
         sc = -quiescence(b, -β, -α, ply + 1, key_history, tid)
         pop!(key_history)
@@ -385,12 +398,10 @@ function negamax(
     end
     isdraw(b) && return 0
 
-    ml = collect(moves(b))
-
-    if isempty(ml)
-        return ischeck(b) ? -(MATE_SCORE - ply) : 0
-    end
-
+    buf_idx  = min(ply, _MAX_BUF_PLY - 1) + 1
+    ml_buf   = _MOVE_BUFS[tid][buf_idx]
+    generate_moves!(ml_buf, b)
+    ml       = view(ml_buf.moves, 1:ml_buf.count)
     in_check = ischeck(b)
     stm      = sidetomove(b) == WHITE ? 1 : 2
 
@@ -422,7 +433,7 @@ function negamax(
     raw_eval = nnue_eval(nnue_accs[tid], b, nnue_net)
 
     # Apply pawn & minor correction history to raw eval
-    eval = raw_eval + (corr_value(b.bytype[1].val, stm) + minor_corr_value(minor_key(b), stm)) ÷ Δ
+    eval = raw_eval + (corr_value(b.bb[BB_WP] | b.bb[BB_BP], stm) + minor_corr_value(minor_key(b), stm)) ÷ Δ
 
     # TT score overrides if it provides a tighter bound
     if tt_flag == TT_EXACT ||
@@ -469,6 +480,7 @@ function negamax(
     best_move       = Move(0)
     flag            = TT_UPPER
     searched_quiets = Move[]
+    legal_moves     = 0
 
     for (i, m) in enumerate(ml)
         m == excluded_move && continue
@@ -511,6 +523,12 @@ function negamax(
 
         update!(nnue_accs[tid], b, m, nnue_net)
         u  = domove!(b, m)
+        if was_illegal(b)
+            undomove!(b, u)
+            undo_update!(nnue_accs[tid], b, m, nnue_net)
+            continue
+        end
+        legal_moves += 1
         push!(key_history, b.key)
         move_stack[ply + 1, tid] = (cur_pt, to(m).val)
 
@@ -567,6 +585,10 @@ function negamax(
         is_quiet && push!(searched_quiets, m)
     end
 
+    if legal_moves == 0 && !search_stopped[]
+        return in_check ? -(MATE_SCORE - ply) : 0
+    end
+
     if !search_stopped[] && !in_check && depth ≥ 2
         diff = best_score - raw_eval
         best_is_capture = best_move ≠ Move(0) && moveiscapture(b, best_move)
@@ -574,7 +596,7 @@ function negamax(
         direction_ok = fail_high ? (diff > 0) : (diff < 0)          # fail-high: up only; fail-low: down only
         if !best_is_capture && direction_ok
             bonus = clamp(diff * depth * Δ, -Γ, Γ)
-            corr_update!(b.bytype[1].val, stm, bonus)
+            corr_update!(b.bb[BB_WP] | b.bb[BB_BP], stm, bonus)
             update_minor_corr!(minor_key(b), stm, bonus)
         end
     end
@@ -592,15 +614,18 @@ function extract_pv_from_tt(root::Board, max_len::Int, key_history::Vector{UInt6
         cnt = 0
         for k in pv_keys
             k == bd.key && (cnt += 1)
-            cnt ≥ 2 && break
         end
         cnt ≥ 2 && break
         _, _, _, _, tt_move, _ = probe_tt(bd.key, 0, 0)
         tt_move == Move(0) && break
         tt_move ∈ moves(bd) || break
+        u = domove!(bd, tt_move)
+        if was_illegal(bd)
+            undomove!(bd, u)
+            break
+        end
         push!(pv, tt_move)
-        push!(pv_keys, bd.key)
-        domove!(bd, tt_move)
+        push!(pv_keys, bd.key)   # record the reached position, not the old one
         isdraw(bd) && break
     end
     return pv
@@ -626,7 +651,9 @@ function search(b::Board, max_depth::Int, tid::Int)::Move
 
     start_ns    = time_ns()
     best_move   = Move(0)
-    ml          = collect(moves(b))
+    root_buf    = _MOVE_BUFS[tid][1]
+    generate_moves!(root_buf, b)
+    ml          = view(root_buf.moves, 1:root_buf.count)
     _NODE_COUNT[tid] = 0
     _SELDEPTH[tid]   = 0
     _ROOT_DEPTH[tid]  = 0
@@ -663,6 +690,11 @@ function search(b::Board, max_depth::Int, tid::Int)::Move
                 cur_pt = ptype(pieceon(b, from(m))).val
                 update!(nnue_accs[tid], b, m, nnue_net)
                 u  = domove!(b, m)
+                if was_illegal(b)
+                    undomove!(b, u)
+                    undo_update!(nnue_accs[tid], b, m, nnue_net)
+                    continue
+                end
                 push!(key_history, b.key)
                 move_stack[1, tid] = (cur_pt, to(m).val)
 
