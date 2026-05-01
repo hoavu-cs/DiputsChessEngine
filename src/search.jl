@@ -12,10 +12,9 @@ const _NODE_COUNT   = fill(0, _N_THREADS)
 const _SELDEPTH     = fill(0, _N_THREADS)
 const _ROOT_DEPTH    = fill(0, _N_THREADS)
 
-"""__________________________________________________
-
-    Transposition Table (shared)
-__________________________________________________"""
+# ============================================================
+# Transposition Table (shared)
+# ============================================================
 
 const _QS_PIECE_VAL = (100, 300, 300, 500, 900, 20000)
 
@@ -83,10 +82,9 @@ end
 
 init_tt()
 
-"""__________________________________________________
-
-    Late Move Reductions
-__________________________________________________"""
+# ============================================================
+# Late Move Reductions
+# ============================================================
 
 const LMR_DEPTH_MAX = 99
 const LMR_MOVES_MAX = 256
@@ -115,18 +113,16 @@ const _MOVE_BUFS = [[MoveList() for _ in 1:_MAX_BUF_PLY] for _ in 1:_N_THREADS]
     return min(r, depth - 1)
 end
 
-"""__________________________________________________
-
-    NNUE (one accumulator per thread)
-__________________________________________________"""
+# ============================================================
+# NNUE (one accumulator per thread)
+# ============================================================
 
 const nnue_net  = load_nnue(joinpath(@__DIR__, "nnue_hl_1024.bin"))
 const nnue_accs = [Accumulator() for _ in 1:_N_THREADS]
 
-"""__________________________________________________
-
-    History Heuristics (per-thread, last dim = tid)
-__________________________________________________"""
+# ============================================================
+# History Heuristics (per-thread, last dim = tid)
+# ============================================================
 
 const MAX_HISTORY = 16384
 
@@ -180,10 +176,9 @@ end
 
 const search_deadline = Ref{UInt64}(typemax(UInt64))
 
-"""__________________________________________________
-
-    Correction History
-__________________________________________________"""
+# ============================================================
+# Correction History
+# ============================================================
 
 # Pawn correction history: adjusts eval based on previous search outcomes
 const _CORR_SIZE    = 1 << 16
@@ -230,10 +225,9 @@ end
     _MINOR_TABLE[color, idx] = Int16(newv)
 end
 
-"""__________________________________________________
-
-    Move Ordering
-__________________________________________________"""
+# ============================================================
+# Move Ordering
+# ============================================================
 
 const _SCORE_HASH    = 1_000_000
 const _SCORE_PROMO   =   900_000
@@ -305,10 +299,9 @@ function sort_moves!(
     end
 end
 
-"""__________________________________________________
-
-    Quiescence Search
-__________________________________________________"""
+# ============================================================
+# Quiescence Search
+# ============================================================
 
 function quiescence(b::Board, α::Int, β::Int, ply::Int, key_history::Vector{UInt64}, tid::Int)::Int
     _NODE_COUNT[tid] += 1
@@ -365,10 +358,9 @@ function quiescence(b::Board, α::Int, β::Int, ply::Int, key_history::Vector{UI
     return best
 end
 
-"""__________________________________________________
-
-    Negamax
-__________________________________________________"""
+# ============================================================
+# Negamax
+# ============================================================
 
 function negamax(
     ::Type{NT},
@@ -631,10 +623,9 @@ function extract_pv_from_tt(root::Board, max_len::Int, key_history::Vector{UInt6
     return pv
 end
 
-"""__________________________________________________
-
-    Iterative Deepening Root
-__________________________________________________"""
+# ============================================================
+# Iterative Deepening Root
+# ============================================================
 
 function search(b::Board, max_depth::Int, tid::Int)::UInt64
     hv  = @view history[:, :, :, tid]
@@ -762,10 +753,9 @@ function search(b::Board, max_depth::Int, tid::Int)::UInt64
     return best_move
 end
 
-"""__________________________________________________
-
-    SMP
-__________________________________________________"""
+# ============================================================
+# SMP
+# ============================================================
 
 function smp_search(b::Board, max_depth::Int, time_limit::Int)::UInt64
     start_ns = time_ns()

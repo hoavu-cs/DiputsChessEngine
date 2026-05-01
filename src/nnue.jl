@@ -76,7 +76,7 @@ end
 # Helpers to apply/reverse a quiet or capture move on a single accumulator in place.
 # Both must be called with the board in the PRE-move state.
 # Val{true} = apply (update!), Val{false} = reverse (undo_update!).
-@inline function _apply_move!(acc::Accumulator, b::Board, m::Move, net::NNUENet, ::Val{add}) where {add}
+@inline function _apply_move!(acc::Accumulator, b::Board, m::UInt64, net::NNUENet, ::Val{add}) where {add}
     piece = pieceon(b, from(m))
     pt    = ptype(piece).val - 1
     fw    = net.fw
@@ -140,7 +140,7 @@ end
     end
 end
 
-@inline function _apply_ep!(acc::Accumulator, b::Board, m::Move, net::NNUENet, ::Val{add}) where {add}
+@inline function _apply_ep!(acc::Accumulator, b::Board, m::UInt64, net::NNUENet, ::Val{add}) where {add}
     fw   = net.fw
     fsq  = _nnue_sq(from(m).val)
     tsq  = _nnue_sq(to(m).val)
@@ -163,7 +163,7 @@ end
     end
 end
 
-@inline function _apply_castle!(acc::Accumulator, b::Board, m::Move, net::NNUENet, ::Val{add}) where {add}
+@inline function _apply_castle!(acc::Accumulator, b::Board, m::UInt64, net::NNUENet, ::Val{add}) where {add}
     fw = net.fw
     fsq = _nnue_sq(from(m).val)
     tsq = _nnue_sq(to(m).val)
@@ -199,7 +199,7 @@ end
     end
 end
 
-@inline function _apply_promo!(acc::Accumulator, b::Board, m::Move, net::NNUENet, ::Val{add}) where {add}
+@inline function _apply_promo!(acc::Accumulator, b::Board, m::UInt64, net::NNUENet, ::Val{add}) where {add}
     fw       = net.fw
     fsq      = _nnue_sq(from(m).val)
     tsq      = _nnue_sq(to(m).val)
@@ -229,7 +229,7 @@ end
 end
 
 # Incremental update in place. Call BEFORE domove!(b, m).
-function update!(acc::Accumulator, b::Board, m::Move, net::NNUENet)
+function update!(acc::Accumulator, b::Board, m::UInt64, net::NNUENet)
     piece   = pieceon(b, from(m))
     mflag   = Int((m >> 16) & 0xf)
     is_ep   = mflag == 4
@@ -239,7 +239,7 @@ function update!(acc::Accumulator, b::Board, m::Move, net::NNUENet)
         _apply_ep!(acc, b, m, net, Val(true))
     elseif is_cast
         _apply_castle!(acc, b, m, net, Val(true))
-    elseif promotion(m) != PieceType(0)
+    elseif promotion(m) ≠ PieceType(0)
         _apply_promo!(acc, b, m, net, Val(true))
     else
         _apply_move!(acc, b, m, net, Val(true))
@@ -247,7 +247,7 @@ function update!(acc::Accumulator, b::Board, m::Move, net::NNUENet)
 end
 
 # Reverse the update. Call AFTER undomove!(b, u) — board is back to pre-move state.
-function undo_update!(acc::Accumulator, b::Board, m::Move, net::NNUENet)
+function undo_update!(acc::Accumulator, b::Board, m::UInt64, net::NNUENet)
     piece   = pieceon(b, from(m))
     mflag   = Int((m >> 16) & 0xf)
     is_ep   = mflag == 4
@@ -257,7 +257,7 @@ function undo_update!(acc::Accumulator, b::Board, m::Move, net::NNUENet)
         _apply_ep!(acc, b, m, net, Val(false))
     elseif is_cast
         _apply_castle!(acc, b, m, net, Val(false))
-    elseif promotion(m) != PieceType(0)
+    elseif promotion(m) ≠ PieceType(0)
         _apply_promo!(acc, b, m, net, Val(false))
     else
         _apply_move!(acc, b, m, net, Val(false))

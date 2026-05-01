@@ -61,13 +61,13 @@ function compute_key(pos::Board)::UInt64
     k = UInt64(0)
     for bb_idx in 1:12
         bb = pos.bb[bb_idx]
-        while bb != 0
+        while bb ≠ 0
             sq, bb = poplsb!(bb)
             k ⊻= _zob_psq(bb_idx, sq)
         end
     end
     pos.stm == 1        && (k ⊻= _ZOB_STM)
-    pos.ep_square != 64 && (k ⊻= _zob_ep(pos.ep_square))
+    pos.ep_square ≠ 64 && (k ⊻= _zob_ep(pos.ep_square))
     k ⊻= _zob_castle(pos.castle_rights)
     return k
 end
@@ -212,7 +212,7 @@ end
 # Generate pseudo-legal moves for knights
 @inline function gen_knight!(ml::MoveList, from::Int, our_bb::UInt64)
     targets = KNIGHT_ATTACKS[from + 1] & ~our_bb
-    while targets != 0
+    while targets ≠ 0
         to, targets = poplsb!(targets)
         push_move!(ml, from, to, 0, 0)
     end
@@ -255,8 +255,8 @@ end
 function _rook_mask(s::Int)
     fr, rr = file(s), rank(s)
     bb = UInt64(0)
-    for f in 1:6; f != fr && (bb |= bit(sq(f, rr))); end
-    for r in 1:6; r != rr && (bb |= bit(sq(fr, r))); end
+    for f in 1:6; f ≠ fr && (bb |= bit(sq(f, rr))); end
+    for r in 1:6; r ≠ rr && (bb |= bit(sq(fr, r))); end
     return bb
 end
 
@@ -267,7 +267,7 @@ function _bishop_attacks_slow(s::Int, occ::UInt64)
         f, r = fr+df, rr+dr
         while 0 ≤ f < 8 && 0 ≤ r < 8
             bb |= bit(sq(f,r))
-            (bit(sq(f,r)) & occ) != 0 && break
+            (bit(sq(f,r)) & occ) ≠ 0 && break
             f += df; r += dr
         end
     end
@@ -281,7 +281,7 @@ function _rook_attacks_slow(s::Int, occ::UInt64)
         f, r = fr+df, rr+dr
         while 0 ≤ f < 8 && 0 ≤ r < 8
             bb |= bit(sq(f,r))
-            (bit(sq(f,r)) & occ) != 0 && break
+            (bit(sq(f,r)) & occ) ≠ 0 && break
             f += df; r += dr
         end
     end
@@ -380,17 +380,17 @@ const _BQ_PATH = bit(57) | bit(58) | bit(59)        # B8, C8, D8
     bb  = pos.bb
     occ = pos.occupied
     if by == 0
-        (PAWN_ATTACKS[2][s + 1] & bb[BB_WP]) != 0 && return true
-        (KNIGHT_ATTACKS[s + 1]  & bb[BB_WN]) != 0 && return true
-        (KING_ATTACKS[s + 1]    & bb[BB_WK]) != 0 && return true
-        (bishop_attacks(s, occ) & (bb[BB_WB] | bb[BB_WQ])) != 0 && return true
-        (rook_attacks(s, occ)   & (bb[BB_WR] | bb[BB_WQ])) != 0 && return true
+        (PAWN_ATTACKS[2][s + 1] & bb[BB_WP]) ≠ 0 && return true
+        (KNIGHT_ATTACKS[s + 1]  & bb[BB_WN]) ≠ 0 && return true
+        (KING_ATTACKS[s + 1]    & bb[BB_WK]) ≠ 0 && return true
+        (bishop_attacks(s, occ) & (bb[BB_WB] | bb[BB_WQ])) ≠ 0 && return true
+        (rook_attacks(s, occ)   & (bb[BB_WR] | bb[BB_WQ])) ≠ 0 && return true
     else
-        (PAWN_ATTACKS[1][s + 1] & bb[BB_BP]) != 0 && return true
-        (KNIGHT_ATTACKS[s + 1]  & bb[BB_BN]) != 0 && return true
-        (KING_ATTACKS[s + 1]    & bb[BB_BK]) != 0 && return true
-        (bishop_attacks(s, occ) & (bb[BB_BB] | bb[BB_BQ])) != 0 && return true
-        (rook_attacks(s, occ)   & (bb[BB_BR] | bb[BB_BQ])) != 0 && return true
+        (PAWN_ATTACKS[1][s + 1] & bb[BB_BP]) ≠ 0 && return true
+        (KNIGHT_ATTACKS[s + 1]  & bb[BB_BN]) ≠ 0 && return true
+        (KING_ATTACKS[s + 1]    & bb[BB_BK]) ≠ 0 && return true
+        (bishop_attacks(s, occ) & (bb[BB_BB] | bb[BB_BQ])) ≠ 0 && return true
+        (rook_attacks(s, occ)   & (bb[BB_BR] | bb[BB_BQ])) ≠ 0 && return true
     end
     return false
 end
@@ -412,7 +412,7 @@ end
 # Generate pseudo-legal moves for king
 @inline function gen_king!(ml::MoveList, pos::Board, from::Int, color::Int, our_bb::UInt64)
     targets = KING_ATTACKS[from + 1] & ~our_bb
-    while targets != 0
+    while targets ≠ 0
         to, targets = poplsb!(targets)
         push_move!(ml, from, to, 0, 0)
     end
@@ -423,27 +423,27 @@ end
     if color == 0
         from == 4   || return
         !is_attacked(pos, 4, opp)  || return
-        (pos.castle_rights & 1) != 0 && (occ & _WK_PATH) == 0 &&
-            (pos.bb[BB_WR] & bit(7)) != 0 &&
+        (pos.castle_rights & 1) ≠ 0 && (occ & _WK_PATH) == 0 &&
+            (pos.bb[BB_WR] & bit(7)) ≠ 0 &&
             !is_attacked(pos, 5, opp) && !is_attacked(pos, 6, opp) && push_move!(ml, 4, 6, 0, 2)
-        (pos.castle_rights & 2) != 0 && (occ & _WQ_PATH) == 0 &&
-            (pos.bb[BB_WR] & bit(0)) != 0 &&
+        (pos.castle_rights & 2) ≠ 0 && (occ & _WQ_PATH) == 0 &&
+            (pos.bb[BB_WR] & bit(0)) ≠ 0 &&
             !is_attacked(pos, 3, opp) && !is_attacked(pos, 2, opp) && push_move!(ml, 4, 2, 0, 3)
     else
         from == 60  || return
         !is_attacked(pos, 60, opp) || return
-        (pos.castle_rights & 4) != 0 && (occ & _BK_PATH) == 0 &&
-            (pos.bb[BB_BR] & bit(63)) != 0 &&
+        (pos.castle_rights & 4) ≠ 0 && (occ & _BK_PATH) == 0 &&
+            (pos.bb[BB_BR] & bit(63)) ≠ 0 &&
             !is_attacked(pos, 61, opp) && !is_attacked(pos, 62, opp) && push_move!(ml, 60, 62, 0, 2)
-        (pos.castle_rights & 8) != 0 && (occ & _BQ_PATH) == 0 &&
-            (pos.bb[BB_BR] & bit(56)) != 0 &&
+        (pos.castle_rights & 8) ≠ 0 && (occ & _BQ_PATH) == 0 &&
+            (pos.bb[BB_BR] & bit(56)) ≠ 0 &&
             !is_attacked(pos, 59, opp) && !is_attacked(pos, 58, opp) && push_move!(ml, 60, 58, 0, 3)
     end
 end
 
 @inline function gen_bishop!(ml::MoveList, pos::Board, from::Int, our_bb::UInt64)
     targets = bishop_attacks(from, pos.occupied) & ~our_bb
-    while targets != 0
+    while targets ≠ 0
         to, targets = poplsb!(targets)
         push_move!(ml, from, to, 0, 0)
     end
@@ -451,7 +451,7 @@ end
 
 @inline function gen_rook!(ml::MoveList, pos::Board, from::Int, our_bb::UInt64)
     targets = rook_attacks(from, pos.occupied) & ~our_bb
-    while targets != 0
+    while targets ≠ 0
         to, targets = poplsb!(targets)
         push_move!(ml, from, to, 0, 0)
     end
@@ -470,26 +470,26 @@ function generate_moves!(ml::MoveList, pos::Board)
     their = c == 0 ? pos.black_bb : pos.white_bb
 
     pcs = bb[base + 1]
-    while pcs != 0; from, pcs = poplsb!(pcs); gen_pawn!(ml, pos, from, c, their); end
+    while pcs ≠ 0; from, pcs = poplsb!(pcs); gen_pawn!(ml, pos, from, c, their); end
 
     pcs = bb[base + 2]
-    while pcs != 0; from, pcs = poplsb!(pcs); gen_knight!(ml, from, our); end
+    while pcs ≠ 0; from, pcs = poplsb!(pcs); gen_knight!(ml, from, our); end
 
     pcs = bb[base + 3]
-    while pcs != 0; from, pcs = poplsb!(pcs); gen_bishop!(ml, pos, from, our); end
+    while pcs ≠ 0; from, pcs = poplsb!(pcs); gen_bishop!(ml, pos, from, our); end
 
     pcs = bb[base + 4]
-    while pcs != 0; from, pcs = poplsb!(pcs); gen_rook!(ml, pos, from, our); end
+    while pcs ≠ 0; from, pcs = poplsb!(pcs); gen_rook!(ml, pos, from, our); end
 
     pcs = bb[base + 5]
-    while pcs != 0
+    while pcs ≠ 0
         from, pcs = poplsb!(pcs)
         gen_bishop!(ml, pos, from, our)
         gen_rook!(ml, pos, from, our)
     end
 
     pcs = bb[base + 6]
-    while pcs != 0; from, pcs = poplsb!(pcs); gen_king!(ml, pos, from, c, our); end
+    while pcs ≠ 0; from, pcs = poplsb!(pcs); gen_king!(ml, pos, from, c, our); end
 end
 
 function generate_moves(pos::Board)::MoveList
@@ -503,12 +503,12 @@ end
 # ============================================================
 
 function isdraw(pos::Board)::Bool
-    pos.halfmove_clock >= 100 && return true
+    pos.halfmove_clock ≥ 100 && return true
 
     # Pawns, rooks, queens → not drawn by material
     (pos.bb[BB_WP] | pos.bb[BB_BP] |
      pos.bb[BB_WR] | pos.bb[BB_BR] |
-     pos.bb[BB_WQ] | pos.bb[BB_BQ]) != 0 && return false
+     pos.bb[BB_WQ] | pos.bb[BB_BQ]) ≠ 0 && return false
 
     wn = count_ones(pos.bb[BB_WN]); wb = count_ones(pos.bb[BB_WB])
     bn = count_ones(pos.bb[BB_BN]); bb = count_ones(pos.bb[BB_BB])
@@ -540,7 +540,7 @@ end
     Int((move >> 16) & 0xf) == 4 && return true   # en passant
     to_bb    = bit(Int((move >> 6) & 0x3f))
     their_bb = pos.stm == 0 ? pos.black_bb : pos.white_bb
-    return (their_bb & to_bb) != 0
+    return (their_bb & to_bb) ≠ 0
 end
 
 # ============================================================
@@ -593,9 +593,9 @@ function domove!(pos::Board, move::UInt64)::UndoInfo
 
     # Find moving and captured pieces via piece map (O(1))
     moving_idx = Int(pos.pieces[from + 1])
-    @assert moving_idx != 0 "domove!: no piece at from=$from (stm=$(pos.stm))"
+    @assert moving_idx ≠ 0 "domove!: no piece at from=$from (stm=$(pos.stm))"
     opp_base = opp * 6
-    captured_idx = flag != 4 ? Int(pos.pieces[to + 1]) : 0
+    captured_idx = flag ≠ 4 ? Int(pos.pieces[to + 1]) : 0
 
     undo = UndoInfo(move, captured_idx, pos.castle_rights, pos.ep_square, pos.halfmove_clock, pos.key)
 
@@ -603,8 +603,8 @@ function domove!(pos::Board, move::UInt64)::UndoInfo
     k = pos.key
     k ⊻= _zob_psq(moving_idx, from)
     k ⊻= _zob_castle(pos.castle_rights)
-    pos.ep_square != 64 && (k ⊻= _zob_ep(pos.ep_square))
-    flag != 4 && captured_idx != 0 && (k ⊻= _zob_psq(captured_idx, to))
+    pos.ep_square ≠ 64 && (k ⊻= _zob_ep(pos.ep_square))
+    flag ≠ 4 && captured_idx ≠ 0 && (k ⊻= _zob_psq(captured_idx, to))
     if flag == 2
         c == 0 ? (k ⊻= _zob_psq(BB_WR, 7))  : (k ⊻= _zob_psq(BB_BR, 63))
     elseif flag == 3
@@ -612,7 +612,7 @@ function domove!(pos::Board, move::UInt64)::UndoInfo
     end
 
     # Remove captured piece
-    captured_idx != 0 && (pos.bb[captured_idx] &= ~dst_bb)
+    captured_idx ≠ 0 && (pos.bb[captured_idx] &= ~dst_bb)
 
     # Move piece: clear src, set dst
     pos.bb[moving_idx] = (pos.bb[moving_idx] & ~src_bb) | dst_bb
@@ -650,7 +650,7 @@ function domove!(pos::Board, move::UInt64)::UndoInfo
     end
 
     # Promotion — replace pawn at dst with promoted piece
-    if promo != 0
+    if promo ≠ 0
         pos.bb[base + 1]                    &= ~dst_bb   # remove pawn
         pos.bb[base + _PROMO_OFFSET[promo]]  |= dst_bb   # add promoted piece
         pos.pieces[to + 1] = Int8(base + _PROMO_OFFSET[promo])
@@ -660,7 +660,7 @@ function domove!(pos::Board, move::UInt64)::UndoInfo
     pos.castle_rights &= _CASTLE_MASK_FROM[from + 1] & _CASTLE_MASK_TO[to + 1]
 
     # === Zobrist: XOR in new state (ep_square and castle_rights already updated) ===
-    promo != 0 ? (k ⊻= _zob_psq(base + _PROMO_OFFSET[promo], to)) :
+    promo ≠ 0 ? (k ⊻= _zob_psq(base + _PROMO_OFFSET[promo], to)) :
                  (k ⊻= _zob_psq(moving_idx, to))
     if flag == 4
         k ⊻= _zob_psq(opp_base + 1, c == 0 ? to - 8 : to + 8)
@@ -670,7 +670,7 @@ function domove!(pos::Board, move::UInt64)::UndoInfo
         c == 0 ? (k ⊻= _zob_psq(BB_WR, 3))  : (k ⊻= _zob_psq(BB_BR, 59))
     end
     k ⊻= _zob_castle(pos.castle_rights)
-    pos.ep_square != 64 && (k ⊻= _zob_ep(pos.ep_square))
+    pos.ep_square ≠ 64 && (k ⊻= _zob_ep(pos.ep_square))
     k ⊻= _ZOB_STM
 
     if flag == 4        # en passant
@@ -684,7 +684,7 @@ function domove!(pos::Board, move::UInt64)::UndoInfo
     elseif flag == 3    # queenside castle
         if c == 0; pos.white_bb ⊻= src_bb | dst_bb | bit(0) | bit(3)
         else;      pos.black_bb ⊻= src_bb | dst_bb | bit(56) | bit(59); end
-    elseif captured_idx != 0  # normal capture (includes promotion-capture)
+    elseif captured_idx ≠ 0  # normal capture (includes promotion-capture)
         if c == 0; pos.white_bb ⊻= src_bb | dst_bb; pos.black_bb ⊻= dst_bb
         else;      pos.black_bb ⊻= src_bb | dst_bb; pos.white_bb ⊻= dst_bb; end
     else                # quiet / double push / promotion (no capture)
@@ -694,7 +694,7 @@ function domove!(pos::Board, move::UInt64)::UndoInfo
     pos.occupied = pos.white_bb | pos.black_bb
     pos.empty    = ~pos.occupied
 
-    pos.halfmove_clock = (captured_idx != 0 || flag == 4 || moving_idx == BB_WP || moving_idx == BB_BP) ? 0 : pos.halfmove_clock + 1
+    pos.halfmove_clock = (captured_idx ≠ 0 || flag == 4 || moving_idx == BB_WP || moving_idx == BB_BP) ? 0 : pos.halfmove_clock + 1
     pos.stm      = opp
     pos.key      = k
 
@@ -704,7 +704,7 @@ end
 function donullmove!(pos::Board)::UndoInfo
     undo = UndoInfo(UInt64(0), 0, pos.castle_rights, pos.ep_square, pos.halfmove_clock, pos.key)
     k = pos.key
-    pos.ep_square != 64 && (k ⊻= _zob_ep(pos.ep_square))
+    pos.ep_square ≠ 64 && (k ⊻= _zob_ep(pos.ep_square))
     k ⊻= _ZOB_STM
     pos.ep_square      = 64
     pos.halfmove_clock += 1
@@ -737,7 +737,7 @@ function undomove!(pos::Board, u::UndoInfo)
     src_bb = bit(from)
     dst_bb = bit(to)
 
-    if promo != 0
+    if promo ≠ 0
         # Undo promotion: remove promoted piece, restore pawn at src
         pos.bb[base + _PROMO_OFFSET[promo]] &= ~dst_bb
         pos.bb[base + 1]                     |= src_bb
@@ -752,7 +752,7 @@ function undomove!(pos::Board, u::UndoInfo)
     end
 
     # Restore captured piece
-    u.captured_bb != 0 && (pos.bb[u.captured_bb] |= dst_bb)
+    u.captured_bb ≠ 0 && (pos.bb[u.captured_bb] |= dst_bb)
 
     # Restore en passant pawn
     if flag == 4
@@ -795,7 +795,7 @@ function undomove!(pos::Board, u::UndoInfo)
     elseif flag == 3    # queenside castle
         if c == 0; pos.white_bb ⊻= src_bb | dst_bb | bit(0) | bit(3)
         else;      pos.black_bb ⊻= src_bb | dst_bb | bit(56) | bit(59); end
-    elseif u.captured_bb != 0  # normal capture
+    elseif u.captured_bb ≠ 0  # normal capture
         if c == 0; pos.white_bb ⊻= src_bb | dst_bb; pos.black_bb ⊻= dst_bb
         else;      pos.black_bb ⊻= src_bb | dst_bb; pos.white_bb ⊻= dst_bb; end
     else                # quiet / double push / promotion (no capture)
@@ -819,8 +819,8 @@ struct Piece;     val::Int; end   # 1-12 = bb index, 0 = empty square
 Base.:(==)(a::PieceType, b::PieceType) = a.val == b.val
 Base.:(==)(a::PieceType, b::Int)      = a.val == b
 Base.:(==)(a::Int,       b::PieceType) = a == b.val
-Base.:(≠)(a::PieceType, b::PieceType) = a.val != b.val
-Base.:(≠)(a::PieceType, b::Int)       = a.val != b
+Base.:(≠)(a::PieceType, b::PieceType) = a.val ≠ b.val
+Base.:(≠)(a::PieceType, b::Int)       = a.val ≠ b
 
 const WHITE  = 0;  const BLACK  = 1
 const PAWN   = 1;  const KNIGHT = 2;  const BISHOP = 3
@@ -845,7 +845,7 @@ pieceon(b::Board, sq::Square) = Piece(b.pieces[sq.val])
 
 # Piece type 1-6 from a Piece (works for both colors; bb index mod 6)
 ptype(p::Piece)  = PieceType(p.val == 0 ? 0 : ((p.val - 1) % 6) + 1)
-pcolor(p::Piece) = p.val == 0 ? -1 : (p.val <= 6 ? WHITE : BLACK)
+pcolor(p::Piece) = p.val == 0 ? -1 : (p.val ≤ 6 ? WHITE : BLACK)
 
 # Iterable over squares in a bitboard — yields Square structs
 struct Squares; bb::UInt64; end
@@ -868,7 +868,7 @@ function tostring(m::UInt64)::String
     promo = Int((m >> 12) & 0xf)
     s = string(Char('a' + file(fsq)), rank(fsq) + 1,
                Char('a' + file(tsq)), rank(tsq) + 1)
-    promo != 0 && (s *= string("qrbn"[promo]))
+    promo ≠ 0 && (s *= string("qrbn"[promo]))
     return s
 end
 
@@ -893,10 +893,10 @@ function from_fen(fen::String)::Board
         end
     end
 
-    stm = length(toks) >= 2 && toks[2] == "b" ? BLACK : WHITE
+    stm = length(toks) ≥ 2 && toks[2] == "b" ? BLACK : WHITE
 
     castle_rights = 0
-    if length(toks) >= 3 && toks[3] != "-"
+    if length(toks) ≥ 3 && toks[3] ≠ "-"
         'K' in toks[3] && (castle_rights |= 1)
         'Q' in toks[3] && (castle_rights |= 2)
         'k' in toks[3] && (castle_rights |= 4)
@@ -904,18 +904,18 @@ function from_fen(fen::String)::Board
     end
 
     ep_square = 64
-    if length(toks) >= 4 && toks[4] != "-"
+    if length(toks) ≥ 4 && toks[4] ≠ "-"
         ep_f = toks[4][1] - 'a'
         ep_r = parse(Int, toks[4][2]) - 1
         ep_square = ep_r * 8 + ep_f
     end
 
-    halfmove_clock = length(toks) >= 5 ? parse(Int, toks[5]) : 0
+    halfmove_clock = length(toks) ≥ 5 ? parse(Int, toks[5]) : 0
 
     pm = zeros(Int8, 64)
     for i in 1:12
         b2 = bb[i]
-        while b2 != 0
+        while b2 ≠ 0
             s, b2 = poplsb!(b2)
             pm[s + 1] = Int8(i)
         end
@@ -934,7 +934,7 @@ function parse_move(b::Board, s::AbstractString)::UInt64
     length(s) < 4 && return Move(0)
     fsq = (s[2] - '1') * 8 + (s[1] - 'a')
     tsq = (s[4] - '1') * 8 + (s[3] - 'a')
-    promo = length(s) >= 5 ? something(findfirst(==(s[5]), "qrbn"), 0) : 0
+    promo = length(s) ≥ 5 ? something(findfirst(==(s[5]), "qrbn"), 0) : 0
     for m in moves(b)
         Int(m & 0x3f) == fsq &&
         Int((m >> 6) & 0x3f) == tsq &&

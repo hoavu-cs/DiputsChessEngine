@@ -4,21 +4,41 @@ include("movegen.jl")
 const ENGINE_NAME   = "Diputs Chess Engine"
 const ENGINE_AUTHOR = "H."
 
-"""__________________________________________________
+include("openings.jl")
 
-    Global State
-__________________________________________________"""
+const _BOOK = Dict{UInt64, Vector{String}}()
+
+function _init_book!()
+    startfen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    for line in _BOOK_LINES
+        b = from_fen(startfen)
+        for ms in line
+            key = b.key
+            m = parse_move(b, ms)
+            m == Move(0) && break
+            if !haskey(_BOOK, key)
+                _BOOK[key] = String[]
+            end
+            ms ∉ _BOOK[key] && push!(_BOOK[key], ms)
+            domove!(b, m)
+        end
+    end
+end
+
+# ============================================================
+# Global State
+# ============================================================
 
 board                        = from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
 game_key_history             = UInt64[board.key]
 max_depth::Int               = 99
+use_own_book::Bool           = false
 search_stopped::Atomic{Bool} = Atomic{Bool}(false)
 search_running::Atomic{Bool} = Atomic{Bool}(false)
 
-"""__________________________________________________
-
-    Position & Options
-__________________________________________________"""
+# ============================================================
+# Position & Options
+# ============================================================
 
 function process_position(command::String)
     tokens = String.(split(command))
@@ -33,7 +53,7 @@ function process_position(command::String)
     elseif tokens[idx] == "fen"
         fen_parts = String[]
         idx += 1
-        while idx ≤ length(tokens) && tokens[idx] != "moves"
+        while idx ≤ length(tokens) && tokens[idx] ≠ "moves"
             push!(fen_parts, tokens[idx])
             idx += 1
         end
@@ -49,7 +69,7 @@ function process_position(command::String)
         idx += 1
         while idx ≤ length(tokens)
             move = parse_move(board, tokens[idx])
-            if move != Move(0)
+            if move ≠ Move(0)
                 domove!(board, move)
                 push!(game_key_history, board.key)
             end
@@ -68,21 +88,23 @@ function process_option(tokens::Vector{String})
         global max_depth = parse(Int, value_str)
     elseif option_name == "Hash"
         resize_tt(parse(Int, value_str))
+    elseif option_name == "OpeningBook"
+        global use_own_book = value_str == "true"
     end
 end
 
 include("nnue.jl")
 include("search.jl")
+_init_book!()
 
-"""__________________________________________________
-
-    Search Thread
-__________________________________________________"""
+# ============================================================
+# Search Thread
+# ============================================================
 
 function search_thread(search_board::Board, search_depth::Int, time_limit::Int)
     try
         best_move = smp_search(search_board, search_depth, time_limit)
-        println(best_move != Move(0) ? "bestmove $(tostring(best_move))" : "bestmove 0000")
+        println(best_move ≠ Move(0) ? "bestmove $(tostring(best_move))" : "bestmove 0000")
         flush(stdout)
     catch e
         println("info string ERROR: $e")
@@ -94,6 +116,15 @@ function search_thread(search_board::Board, search_depth::Int, time_limit::Int)
 end
 
 function process_go(tokens::Vector{String})
+    if use_own_book && haskey(_BOOK, board.key)
+        candidates = filter(ms -> parse_move(board, ms) ≠ Move(0), _BOOK[board.key])
+        if !isempty(candidates)
+            println("bestmove $(rand(candidates))")
+            flush(stdout)
+            return
+        end
+    end
+
     search_stopped[] = false
     search_running[] = true
 
@@ -145,16 +176,16 @@ function process_stop()
     search_running[] && (search_stopped[] = true)
 end
 
-"""__________________________________________________
-
-    UCI Loop
-__________________________________________________"""
+# ============================================================
+# UCI Loop
+# ============================================================
 
 function process_uci()
     println("id name $(ENGINE_NAME)")
     println("id author $(ENGINE_AUTHOR)")
     println("option name Depth type spin default 99 min 1 max 99")
     println("option name Hash type spin default 256 min 64 max 1024")
+    println("option name OpeningBook type check default false")
     println("uciok")
     flush(stdout)
 end
