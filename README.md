@@ -12,9 +12,6 @@ This engine plays chess with an Elo.
 60 games between commit a1e499a against Stash 37, 2:00+1, UHO_Lichess_4852_v1.epd, 1 thread, 256Mb hash each.
 ```
 Score of diputs.sh vs stash-37.0-linux-64: 34 - 11 - 15 [0.692]
-...      diputs.sh playing White: 23 - 2 - 5  [0.850] 30
-...      diputs.sh playing Black: 11 - 9 - 10  [0.533] 30
-...      White vs Black: 32 - 13 - 15  [0.658] 60
 ```
 
 ## Running using Julia Directly
@@ -38,21 +35,16 @@ quit
 
 ## Running using a Wrapper Script and GUI
 
-Point your UCI-compatible GUI (Arena, Cutechess, En Croissant, Nibbler etc.) to the wrapper script. For single-threaded version:
+Point your UCI-compatible GUI (Arena, Cutechess, En Croissant, Nibbler etc.) to the wrapper script. For single-threaded version, go to project folder and locate
 ```
 diputs_1t.sh
 ```
 
-Make it executable first:
+Make it executable and run
 
 ```bash
 chmod +x diputs_1t.sh
-```
-
-Or run directly from the terminal:
-
-```bash
-bash diputs_1t.sh
+./diputs_1t.sh
 ```
 
 
