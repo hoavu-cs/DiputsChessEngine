@@ -18,6 +18,7 @@ Score of diputs.sh vs stash-37.0-linux-64: 34 - 11 - 15 [0.692]
 ```
 
 ## Setup (one time)
+Even though the engine is self-contained, to be on the safe side, run
 
 ```bash
 julia --project=. -e 'import Pkg; Pkg.instantiate()'
