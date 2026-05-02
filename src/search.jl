@@ -3,6 +3,41 @@
 const ∞        = 10_000_000
 const MATE_SCORE =  9_000_000
 
+# ============================================================
+# Search Params — exposed via UCI setoption
+# ============================================================
+
+Base.@kwdef mutable struct SearchParams
+    rfp_margin::Int     = 175
+    rfp_improving::Int  = 25
+    rfp_max_depth::Int  = 8
+    nmp_base::Int       = 4
+    nmp_depth_div::Int  = 3
+    nmp_eval_div::Int   = 200
+    nmp_max_extra::Int  = 3
+    nmp_min_depth::Int  = 3
+    lmp_base::Int       = 5
+    lmp_div::Int        = 2
+    lmp_max_depth::Int  = 8
+    lmr_divisor::Int    = 3
+    lmr_in_check::Int   = -1
+    lmr_capture::Int    = -1
+    lmr_non_pv::Int     = 1
+    asp_window::Int     = 25
+    asp_depth::Int      = 6
+    asp_max::Int        = 200
+    iir_min_depth::Int  = 3
+    se_margin::Int      = 6
+    se_min_depth::Int   = 6
+    se_double_margin::Int = 40
+    max_history::Int    = 16384
+    corr_Δ::Int         = 256
+    corr_δ::Int         = 64
+    corr_Γ::Int         = 16384
+end
+
+const sp = SearchParams()
+
 abstract type NodeType end
 struct PVNode    <: NodeType end
 struct NonPVNode <: NodeType end
@@ -93,7 +128,7 @@ const LMR_TABLE = zeros(Int, LMR_DEPTH_MAX, LMR_MOVES_MAX)
 function init_lmr_table!()
     for d in 1:LMR_DEPTH_MAX
         for i in 1:LMR_MOVES_MAX
-            R = 1 + log(d) * log(i) / 3
+            R = 1 + log(d) * log(i) / sp.lmr_divisor
             LMR_TABLE[d, i] = clamp(round(Int, R), 1, d - 1)
         end
     end
@@ -107,9 +142,9 @@ const _MOVE_BUFS = [[MoveList() for _ in 1:_MAX_BUF_PLY] for _ in 1:_N_THREADS]
 
 @inline function lmr_reduction(depth::Int, i::Int, in_check::Bool, is_capture::Bool, is_pv::Bool)::Int
     r = LMR_TABLE[depth, min(i, LMR_MOVES_MAX)]
-    in_check   && (r = max(1, r - 1))
-    is_capture && (r = max(1, r - 1))
-    !is_pv      && (r += 1)
+    in_check   && (r = max(1, r + sp.lmr_in_check))
+    is_capture && (r = max(1, r + sp.lmr_capture))
+    !is_pv      && (r += sp.lmr_non_pv)
     return min(r, depth - 1)
 end
 
@@ -123,8 +158,6 @@ const nnue_accs = [Accumulator() for _ in 1:_N_THREADS]
 # ============================================================
 # History Heuristics (per-thread, last dim = tid)
 # ============================================================
-
-const MAX_HISTORY = 16384
 
 const history      = zeros(Int,   2, 64, 64, _N_THREADS)
 const cont_hist    = zeros(Int16, 64, 7, 64, 7, 2, _N_THREADS)
@@ -145,9 +178,9 @@ function clear_history()
 end
 
 @inline function update_history!(color::Int, from_sq::Int, to_sq::Int, bonus::Int, tid::Int)
-    clamped = clamp(bonus, -MAX_HISTORY, MAX_HISTORY)
+    clamped = clamp(bonus, -sp.max_history, sp.max_history)
     @inbounds history[color, from_sq, to_sq, tid] +=
-        clamped - history[color, from_sq, to_sq, tid] * abs(clamped) ÷ MAX_HISTORY
+        clamped - history[color, from_sq, to_sq, tid] * abs(clamped) ÷ sp.max_history
 end
 
 @inline function update_cont_hist!(
@@ -160,16 +193,16 @@ end
     prev_pt, prev_to   = ply > 1 ? move_stack[ply, tid]     : (0, 0)
     prev2_pt, prev2_to = ply > 2 ? move_stack[ply - 1, tid] : (0, 0)
     prev_pt == 0 && return
-    clamped = clamp(bonus, -MAX_HISTORY, MAX_HISTORY)
+    clamped = clamp(bonus, -sp.max_history, sp.max_history)
     @inbounds begin
         old = Int(cont_hist[cur_to, cur_pt, prev_to, prev_pt, stm, tid])
-        cont_hist[cur_to, cur_pt, prev_to, prev_pt, stm, tid] = Int16(old + clamped - old * abs(clamped) ÷ MAX_HISTORY)
+        cont_hist[cur_to, cur_pt, prev_to, prev_pt, stm, tid] = Int16(old + clamped - old * abs(clamped) ÷ sp.max_history)
     end
     if prev2_pt > 0
-        clamped2 = clamp(bonus, -MAX_HISTORY, MAX_HISTORY)
+        clamped2 = clamp(bonus, -sp.max_history, sp.max_history)
         @inbounds begin
             old2 = Int(cont_hist2[cur_to, cur_pt, prev2_to, prev2_pt, stm, tid])
-            cont_hist2[cur_to, cur_pt, prev2_to, prev2_pt, stm, tid] = Int16(old2 + clamped2 - old2 * abs(clamped2) ÷ MAX_HISTORY)
+            cont_hist2[cur_to, cur_pt, prev2_to, prev2_pt, stm, tid] = Int16(old2 + clamped2 - old2 * abs(clamped2) ÷ sp.max_history)
         end
     end
 end
@@ -184,9 +217,7 @@ const search_deadline = Ref{UInt64}(typemax(UInt64))
 const _CORR_SIZE    = 1 << 16
 const _CORR_MASK    = _CORR_SIZE - 1
 const _CORR_TABLE   = zeros(Int16, 2, _CORR_SIZE)  # [white, black]
-const Δ = 256
-const δ  = 64    # 64/256 = 0.25 EMA learning rate
-const Γ   = 16384  # max correction value (after scaling by Δ)
+# Correction history Δ, δ, Γ now live in sp.corr_Δ, sp.corr_δ, sp.corr_Γ
 
 @inline function corr_value(key::UInt64, color::Int)::Int
     Int(_CORR_TABLE[color, Int(key & _CORR_MASK) + 1])
@@ -196,12 +227,12 @@ end
     Gravity moving average update:
     new = old + 0.25 * (bonus - old)
         = 0.75 * old + 0.25 * bonus
-    Then clamp to [-Γ, Γ].
+    Then clamp to [-sp.corr_Γ, sp.corr_Γ].
 """
 @inline function corr_update!(key::UInt64, color::Int, bonus::Int)
     idx  = Int(key & _CORR_MASK) + 1
     old  = Int(_CORR_TABLE[color, idx])
-    newv = clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ)
+    newv = clamp(old + (bonus - old) * sp.corr_δ ÷ sp.corr_Δ, -sp.corr_Γ, sp.corr_Γ)
     _CORR_TABLE[color, idx] = Int16(newv)
 end
 
@@ -221,7 +252,7 @@ end
 @inline function update_minor_corr!(key::UInt64, color::Int, bonus::Int)
     idx  = Int(key & _MINOR_MASK) + 1
     old  = Int(_MINOR_TABLE[color, idx])
-    newv = clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ)
+    newv = clamp(old + (bonus - old) * sp.corr_δ ÷ sp.corr_Δ, -sp.corr_Γ, sp.corr_Γ)
     _MINOR_TABLE[color, idx] = Int16(newv)
 end
 
@@ -419,13 +450,13 @@ function negamax(
     end
 
     # Internal iterative reduction
-    depth -= (tt_best == Move(0) && depth ≥ 3) ? 1 : 0
+    depth -= (tt_best == Move(0) && depth ≥ sp.iir_min_depth) ? 1 : 0
 
     # Raw NNUE eval
     raw_eval = nnue_eval(nnue_accs[tid], b, nnue_net)
 
     # Apply pawn & minor correction history to raw eval
-    eval = raw_eval + (corr_value(b.bb[BB_WP] | b.bb[BB_BP], stm) + minor_corr_value(minor_key(b), stm)) ÷ Δ
+    eval = raw_eval + (corr_value(b.bb[BB_WP] | b.bb[BB_BP], stm) + minor_corr_value(minor_key(b), stm)) ÷ sp.corr_Δ
 
     # TT score overrides if it provides a tighter bound
     if tt_flag == TT_EXACT ||
@@ -439,12 +470,12 @@ function negamax(
     improving = !in_check && ply ≥ 3 && eval > eval_stack[ply - 1, tid]
 
     # Reverse futility pruning
-    if depth ≤ 8 && !in_check && !is_pv_node && !tt_is_pv
-        eval ≥ β + (175 * depth - 25 * improving) && return div(eval + β, 2)
+    if depth ≤ sp.rfp_max_depth && !in_check && !is_pv_node && !tt_is_pv
+        eval ≥ β + (sp.rfp_margin * depth - sp.rfp_improving * improving) && return div(eval + β, 2)
     end
 
     # Null move pruning
-    if depth ≥ 3 && !in_check && eval ≥ β && !is_pv_node && !is_singular
+    if depth ≥ sp.nmp_min_depth && !in_check && eval ≥ β && !is_pv_node && !is_singular
         has_piece = false
         side = sidetomove(b)
         for pt in (QUEEN, ROOK, BISHOP, KNIGHT)
@@ -455,7 +486,7 @@ function negamax(
             has_piece && break
         end
         if has_piece
-            R = min(4 + div(depth, 3) + min(div(eval - β, 200), 3), depth - 1)
+            R = min(sp.nmp_base + div(depth, sp.nmp_depth_div) + min(div(eval - β, sp.nmp_eval_div), sp.nmp_max_extra), depth - 1)
             u = donullmove!(b)
             move_stack[ply + 1, tid] = (0, 0)
             sc = -negamax(NonPVNode, b, depth - 1 - R, -β, -β + 1, ply + 1, key_history, tid)
@@ -483,28 +514,28 @@ function negamax(
         cur_pt     = ptype(pieceon(b, from(m))).val
 
         # Late move pruning
-        if depth ≤ 8 && !in_check && is_quiet && !is_pv_node
-            length(searched_quiets) ≥ (5 + depth * depth) ÷ (2 - Int(improving)) && continue
+        if depth ≤ sp.lmp_max_depth && !in_check && is_quiet && !is_pv_node
+            length(searched_quiets) ≥ (sp.lmp_base + depth * depth) ÷ (sp.lmp_div - Int(improving)) && continue
         end
 
         # Continuation history pruning
         # if !is_pv_node && !in_check && is_quiet && prev_pt > 0
-        #     @inbounds Int(cont_hist[to(m).val, cur_pt, prev_to, prev_pt, stm, tid]) < -(MAX_HISTORY ÷ 4) * depth && continue
+        #     @inbounds Int(cont_hist[to(m).val, cur_pt, prev_to, prev_pt, stm, tid]) < -(sp.max_history ÷ 4) * depth && continue
         # end
 
         # Singular extension: if the TT move is clearly better than all others,
         # extend it by 1. Prevents recursive singular searches via excluded_move guard.
         ext = 0
-        if m == tt_best && !is_singular && depth ≥ 6 && tt_flag ≠ TT_UPPER && ply ≤ 2 * _ROOT_DEPTH[tid] &&
+        if m == tt_best && !is_singular && depth ≥ sp.se_min_depth && tt_flag ≠ TT_UPPER && ply ≤ 2 * _ROOT_DEPTH[tid] &&
             abs(tt_score) < MATE_SCORE - TT_MAX_PLY && tt_stored_depth ≥ depth - 3
 
-            singular_β  = tt_score - 6 * depth 
+            singular_β  = tt_score - sp.se_margin * depth 
             singular_depth = (depth ÷ 2) + 1
             sing_score = negamax(NonPVNode, b, singular_depth, singular_β - 1, singular_β,
                                  ply, key_history, tid; excluded_move = m)
             if sing_score < singular_β
                 ext = 1
-                if sing_score < singular_β - 40 
+                if sing_score < singular_β - sp.se_double_margin 
                     ext += 1 # double extension
                 end
             elseif singular_β ≥ β
@@ -587,7 +618,7 @@ function negamax(
         fail_high = best_move ≠ Move(0)                              # a move beat alpha
         direction_ok = fail_high ? (diff > 0) : (diff < 0)          # fail-high: up only; fail-low: down only
         if !best_is_capture && direction_ok
-            bonus = clamp(diff * depth * Δ, -Γ, Γ)
+            bonus = clamp(diff * depth * sp.corr_Δ, -sp.corr_Γ, sp.corr_Γ)
             corr_update!(b.bb[BB_WP] | b.bb[BB_BP], stm, bonus)
             update_minor_corr!(minor_key(b), stm, bonus)
         end
@@ -657,9 +688,9 @@ function search(b::Board, max_depth::Int, tid::Int)::UInt64
         _ROOT_DEPTH[tid] = depth
         search_stopped[] && break
 
-        window     = 50
-        asp_α      = depth ≥ 6 ? prev_score - window : -∞
-        asp_β      = depth ≥ 6 ? prev_score + window :  ∞
+        window     = sp.asp_window
+        asp_α      = depth ≥ sp.asp_depth ? prev_score - window : -∞
+        asp_β      = depth ≥ sp.asp_depth ? prev_score + window :  ∞
         depth_best = Move(0)
         best_score = prev_score
 
@@ -720,11 +751,11 @@ function search(b::Board, max_depth::Int, tid::Int)::UInt64
 
             if α ≤ asp_α
                 window *= 2
-                asp_α = window ≥ 200 ? -∞ : max(asp_α - window, -∞)
+                asp_α = window ≥ sp.asp_max ? -∞ : max(asp_α - window, -∞)
             elseif α ≥ asp_β
                 iter_best ≠ Move(0) && (depth_best = iter_best; best_score = α)
                 window *= 2
-                asp_β = window ≥ 200 ?  ∞ : min(asp_β + window, ∞)
+                asp_β = window ≥ sp.asp_max ?  ∞ : min(asp_β + window, ∞)
             else
                 depth_best = iter_best
                 best_score = α

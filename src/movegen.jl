@@ -804,6 +804,7 @@ function undomove!(pos::Board, u::UndoInfo)
     end
     pos.occupied = pos.white_bb | pos.black_bb
     pos.empty    = ~pos.occupied
+    return nothing
 end
 
 # ============================================================
