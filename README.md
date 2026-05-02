@@ -16,17 +16,14 @@ Point your UCI-compatible GUI (Arena, Cutechess, En Croissant, Nibbler etc.) to 
 ```
 diputs_1t.sh # 1-thread version
 diputs_2t.sh # 2-thread version
-diputs_4t.sh # 4-thread version
 
 chmod +x diputs_1t.sh # give exec permission
 chmod +x diputs_2t.sh
-chmod +x diputs_4t.sh
 ```
 
 Then point the GUI program to it or run in the terminall
 
 ```bash
-chmod +x diputs_1t.sh
 ./diputs_1t.sh
 ```
 
