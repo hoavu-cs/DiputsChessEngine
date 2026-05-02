@@ -145,8 +145,8 @@ function clear_history()
     fill!(move_stack, (0, 0))
     fill!(_CORR_TABLE, Int16(0))
     fill!(_MINOR_TABLE, Int16(0))
-    fill!(_NONPAWNW_TABLE, Int16(0))
-    fill!(_NONPAWNB_TABLE, Int16(0))
+    fill!(_MAJORW_TABLE, Int16(0))
+    fill!(_MAJORB_TABLE, Int16(0))
 end
 
 @inline function update_history!(color::Int, from_sq::Int, to_sq::Int, bonus::Int, tid::Int)
@@ -228,35 +228,34 @@ end
     _MINOR_TABLE[color, idx] = Int16(newv)
 end
 
-# Non-pawn correction history — keys on non-pawn material (queens + rooks), split by WHITE/BLACK.
-const _NONPAWNW_SIZE = 1 << 14
-const _NONPAWNW_MASK = _NONPAWNW_SIZE - 1
-const _NONPAWNW_TABLE = zeros(Int16, 2, _NONPAWNW_SIZE)  # [stm, key] for white non-pawns
-const _NONPAWNB_SIZE = 1 << 14
-const _NONPAWNB_MASK = _NONPAWNB_SIZE - 1
-const _NONPAWNB_TABLE = zeros(Int16, 2, _NONPAWNB_SIZE)  # [stm, key] for black non-pawns
+# Major piece correction history — keys on major material (queens + rooks), split by WHITE/BLACK.
+const _MAJORW_SIZE = 1 << 14
+const _MAJORW_MASK = _MAJORW_SIZE - 1
+const _MAJORW_TABLE = zeros(Int16, 2, _MAJORW_SIZE)
+const _MAJORB_SIZE = 1 << 14
+const _MAJORB_MASK = _MAJORB_SIZE - 1
+const _MAJORB_TABLE = zeros(Int16, 2, _MAJORB_SIZE)
 
-
-@inline function nonpawnw_corr_value(key::UInt64, color::Int)::Int
-    Int(_NONPAWNW_TABLE[color, Int(key & _NONPAWNW_MASK) + 1])
+@inline function major_corr_value_w(key::UInt64, color::Int)::Int
+    Int(_MAJORW_TABLE[color, Int(key & _MAJORW_MASK) + 1])
 end
 
-@inline function nonpawnb_corr_value(key::UInt64, color::Int)::Int
-    Int(_NONPAWNB_TABLE[color, Int(key & _NONPAWNB_MASK) + 1])
+@inline function major_corr_value_b(key::UInt64, color::Int)::Int
+    Int(_MAJORB_TABLE[color, Int(key & _MAJORB_MASK) + 1])
 end
 
-@inline function update_nonpawnw_corr!(key::UInt64, color::Int, bonus::Int)
-    idx  = Int(key & _NONPAWNW_MASK) + 1
-    old  = Int(_NONPAWNW_TABLE[color, idx])
+@inline function update_major_corr_w!(key::UInt64, color::Int, bonus::Int)
+    idx  = Int(key & _MAJORW_MASK) + 1
+    old  = Int(_MAJORW_TABLE[color, idx])
     newv = clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ)
-    _NONPAWNW_TABLE[color, idx] = Int16(newv)
+    _MAJORW_TABLE[color, idx] = Int16(newv)
 end
 
-@inline function update_nonpawnb_corr!(key::UInt64, color::Int, bonus::Int)
-    idx  = Int(key & _NONPAWNB_MASK) + 1
-    old  = Int(_NONPAWNB_TABLE[color, idx])
+@inline function update_major_corr_b!(key::UInt64, color::Int, bonus::Int)
+    idx  = Int(key & _MAJORB_MASK) + 1
+    old  = Int(_MAJORB_TABLE[color, idx])
     newv = clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ)
-    _NONPAWNB_TABLE[color, idx] = Int16(newv)
+    _MAJORB_TABLE[color, idx] = Int16(newv)
 end
 
 # ============================================================
@@ -455,8 +454,8 @@ function negamax(
     # Apply pawn, minor & non-pawn correction history to raw eval
     eval = raw_eval + (corr_value(b.bb[BB_WP] | b.bb[BB_BP], stm)
                      + minor_corr_value(minor_key(b), stm)
-                     + nonpawnw_corr_value(b.bb[BB_WQ] | b.bb[BB_WR], stm) ÷ 2
-                     + nonpawnb_corr_value(b.bb[BB_BQ] | b.bb[BB_BR], stm) ÷ 2) ÷ Δ
+                     + major_corr_value_w(b.bb[BB_WQ] | b.bb[BB_WR], stm) ÷ 2
+                     + major_corr_value_b(b.bb[BB_BQ] | b.bb[BB_BR], stm) ÷ 2) ÷ Δ
 
     # TT score overrides if it provides a tighter bound
     if tt_flag == TT_EXACT ||
@@ -504,6 +503,7 @@ function negamax(
     flag            = TT_UPPER
     searched_quiets = Move[]
     legal_moves     = 0
+    α_0 = α
 
     for (i, m) in enumerate(ml)
         m == excluded_move && continue
@@ -628,14 +628,13 @@ function negamax(
     if !search_stopped[] && !in_check && depth ≥ 2
         diff = best_score - raw_eval
         best_is_capture = best_move ≠ Move(0) && moveiscapture(b, best_move)
-        fail_high = best_move ≠ Move(0)                              # a move beat alpha
-        direction_ok = fail_high ? (diff > 0) : (diff < 0)          # fail-high: up only; fail-low: down only
+        direction_ok = (best_score > α_0) ? (diff > 0) : (diff < 0)          # fail-high: up only; fail-low: down only
         if !best_is_capture && direction_ok
             bonus = clamp(diff * depth * Δ, -Γ, Γ)
             corr_update!(b.bb[BB_WP] | b.bb[BB_BP], stm, bonus)
             update_minor_corr!(minor_key(b), stm, bonus)
-            update_nonpawnw_corr!(b.bb[BB_WQ] | b.bb[BB_WR], stm, bonus)
-            update_nonpawnb_corr!(b.bb[BB_BQ] | b.bb[BB_BR], stm, bonus)
+            update_major_corr_w!(b.bb[BB_WQ] | b.bb[BB_WR], stm, bonus)
+            update_major_corr_b!(b.bb[BB_BQ] | b.bb[BB_BR], stm, bonus)
         end
     end
 
