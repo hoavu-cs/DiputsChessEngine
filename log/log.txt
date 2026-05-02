@@ -1,6 +1,18 @@
 === SPRT Results Log ===
+
+ec5173e  - Non-pawn correction history 
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (15+0.15, NULL, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 21.12 +/- 13.25, nElo: 37.57 +/- 23.50
+LOS: 99.91 %, DrawRatio: 49.05 %, PairsRatio: 1.52
+Games: 840, Wins: 242, Losses: 191, Draws: 407, Points: 445.5 (53.04 %)
+Ptnml(0-2): [6, 79, 206, 116, 13], WL/DD Ratio: 0.94
+LLR: 2.24 (101.9%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
 a8ea385 — Add double extension and multicut
 --------------------------------------------------
+21 Elo
 
 a1e499a — Use pseudo-legal movegen
 --------------------------------------------------
