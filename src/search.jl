@@ -145,6 +145,8 @@ function clear_history()
     fill!(move_stack, (0, 0))
     fill!(_CORR_TABLE, Int16(0))
     fill!(_MINOR_TABLE, Int16(0))
+    fill!(_NONPAWNW_TABLE, Int16(0))
+    fill!(_NONPAWNB_TABLE, Int16(0))
 end
 
 @inline function update_history!(color::Int, from_sq::Int, to_sq::Int, bonus::Int, tid::Int)
@@ -224,6 +226,37 @@ end
     old  = Int(_MINOR_TABLE[color, idx])
     newv = clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ)
     _MINOR_TABLE[color, idx] = Int16(newv)
+end
+
+# Non-pawn correction history — keys on non-pawn material (queens + rooks), split by WHITE/BLACK.
+const _NONPAWNW_SIZE = 1 << 14
+const _NONPAWNW_MASK = _NONPAWNW_SIZE - 1
+const _NONPAWNW_TABLE = zeros(Int16, 2, _NONPAWNW_SIZE)  # [stm, key] for white non-pawns
+const _NONPAWNB_SIZE = 1 << 14
+const _NONPAWNB_MASK = _NONPAWNB_SIZE - 1
+const _NONPAWNB_TABLE = zeros(Int16, 2, _NONPAWNB_SIZE)  # [stm, key] for black non-pawns
+
+
+@inline function nonpawnw_corr_value(key::UInt64, color::Int)::Int
+    Int(_NONPAWNW_TABLE[color, Int(key & _NONPAWNW_MASK) + 1])
+end
+
+@inline function nonpawnb_corr_value(key::UInt64, color::Int)::Int
+    Int(_NONPAWNB_TABLE[color, Int(key & _NONPAWNB_MASK) + 1])
+end
+
+@inline function update_nonpawnw_corr!(key::UInt64, color::Int, bonus::Int)
+    idx  = Int(key & _NONPAWNW_MASK) + 1
+    old  = Int(_NONPAWNW_TABLE[color, idx])
+    newv = clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ)
+    _NONPAWNW_TABLE[color, idx] = Int16(newv)
+end
+
+@inline function update_nonpawnb_corr!(key::UInt64, color::Int, bonus::Int)
+    idx  = Int(key & _NONPAWNB_MASK) + 1
+    old  = Int(_NONPAWNB_TABLE[color, idx])
+    newv = clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ)
+    _NONPAWNB_TABLE[color, idx] = Int16(newv)
 end
 
 # ============================================================
@@ -419,8 +452,11 @@ function negamax(
     # Raw NNUE eval
     raw_eval = nnue_eval(nnue_accs[tid], b, nnue_net)
 
-    # Apply pawn & minor correction history to raw eval
-    eval = raw_eval + (corr_value(b.bb[BB_WP] | b.bb[BB_BP], stm) + minor_corr_value(minor_key(b), stm)) ÷ Δ
+    # Apply pawn, minor & non-pawn correction history to raw eval
+    eval = raw_eval + (corr_value(b.bb[BB_WP] | b.bb[BB_BP], stm)
+                     + minor_corr_value(minor_key(b), stm)
+                     + nonpawnw_corr_value(b.bb[BB_WQ] | b.bb[BB_WR], stm) ÷ 2
+                     + nonpawnb_corr_value(b.bb[BB_BQ] | b.bb[BB_BR], stm) ÷ 2) ÷ Δ
 
     # TT score overrides if it provides a tighter bound
     if tt_flag == TT_EXACT ||
@@ -598,6 +634,8 @@ function negamax(
             bonus = clamp(diff * depth * Δ, -Γ, Γ)
             corr_update!(b.bb[BB_WP] | b.bb[BB_BP], stm, bonus)
             update_minor_corr!(minor_key(b), stm, bonus)
+            update_nonpawnw_corr!(b.bb[BB_WQ] | b.bb[BB_WR], stm, bonus)
+            update_nonpawnb_corr!(b.bb[BB_BQ] | b.bb[BB_BR], stm, bonus)
         end
     end
 
