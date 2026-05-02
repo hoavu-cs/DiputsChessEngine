@@ -6,7 +6,7 @@ Julia, like Python, is highly portable and easy on the eyes.
 
 Requirements: [Julia](https://julialang.org/downloads/) 1.9+. Make sure to add it to your PATH.
 
-## Strength
+### Strength
 This engine plays chess with an Elo.
 
 60 games between commit a1e499a against Stash 37, 2:00+1, UHO_Lichess_4852_v1.epd, 1 thread, 256Mb hash each.
@@ -14,7 +14,7 @@ This engine plays chess with an Elo.
 Score of diputs.sh vs stash-37.0-linux-64: 34 - 11 - 15 [0.692]
 ```
 
-## Running using Julia Directly
+### Running using Julia Directly
 You can run the engine directly from the terminal.
 
 ```bash
@@ -33,7 +33,7 @@ go depth 20
 quit
 ```
 
-## Running using a Wrapper Script and GUI
+### Running using a Wrapper Script and GUI
 
 Point your UCI-compatible GUI (Arena, Cutechess, En Croissant, Nibbler etc.) to the wrapper script. For single-threaded version, go to project folder and locate
 ```
@@ -48,7 +48,7 @@ chmod +x diputs_1t.sh
 ```
 
 
-## SMP (multi-threaded)
+### SMP (multi-threaded)
 
 The thread count is fixed at Julia startup, to run with 1, 2, or 4 threads, use: `diputs_1t.sh`, `diputs_2t.sh`, or `diputs_4t.sh` respectively. You can also create your own wrapper script with a custom thread count. Say you can create `diputs_16t.sh` with 16 threads like this:
 ```bash
@@ -68,6 +68,6 @@ Elo: 51.52 +/- 23.51, nElo: 79.94 +/- 35.89
 
 
 
-## License
+### License
 
 This project is licensed under the [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.html).
