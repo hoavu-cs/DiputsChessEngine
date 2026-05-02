@@ -1,8 +1,8 @@
 # Diputs Chess Engine
 
 A non-competitive UCI chess engine for trolling.
-I have ~~1 week~~ 2 weeks to work on this engine to rehash Julia.
-Julia, like Python, is highly portable and easy on the eye.
+I have ~~1 week~~ 2 weeks to work on this engine to brush up on Julia.
+Julia, like Python, is highly portable and easy on the eyes.
 
 Requirements: [Julia](https://julialang.org/downloads/) 1.9+. Make sure to add it to your PATH.
 
@@ -64,7 +64,7 @@ bash diputs_1t.sh
 
 ## SMP (multi-threaded)
 
-The thread count is fixed at Julia startup, to run with 1, 2, 4, or 8 threads, use: `diputs_1t.sh`, `diputs_2t.sh`, `diputs_4t.sh`, or `diputs_8t.sh` respectively. You can also create your own wrapper script with a custom thread count. Say you can create `diputs_16t.sh` with 16 threads like this:
+The thread count is fixed at Julia startup, to run with 1, 2, 4, or 8 threads, use: `diputs_1t.sh`, `diputs_2t.sh`, or `diputs_4t.sh` respectively. You can also create your own wrapper script with a custom thread count. Say you can create `diputs_16t.sh` with 16 threads like this:
 ```bash
 #!/bin/bash
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -73,7 +73,7 @@ exec julia --threads=16 --project="$DIR" "$DIR/src/uci.jl"
 
 make it executable, and then point your GUI to it. 
 
-2-threaded version gains around 50 Elo against the single-threaded version (based on testing). It is known that [lazy SMP](https://www.chessprogramming.org/Lazy_SMP) scales up to 8 cores and above.
+2-threaded version gains around 50 Elo against the single-threaded version (based on testing). It is known that [lazy SMP](https://www.chessprogramming.org/Lazy_SMP) scales up to 8 cores and above. For normal use, 2 threads are recommended. I haven't tested >2 threads thoroughly
 
 ```
 Results of DIPUTEXP-SMP vs Diputs (10+0.1, NULL - 4t, 256MB, UHO_Lichess_4852_v1.epd):
