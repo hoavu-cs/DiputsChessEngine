@@ -21,17 +21,10 @@ chmod +x diputs_1t.sh # give exec permission
 chmod +x diputs_2t.sh
 ```
 
-Then point the GUI program to it or run in the terminall
+Then point the GUI program to it or run in the terminal.
 
 ```bash
 ./diputs_1t.sh
-```
-
-
-**Running using Julia Directly**. You can also run the engine directly from the terminal.
-
-```bash
-julia --project=. src/uci.jl 
 uci
 isready
 position startpos
@@ -41,8 +34,15 @@ quit
 ```
 
 
+**Running using Julia Directly**. You can also run the engine directly from the terminal.
 
-**SMP (multi-threaded).** The thread count is fixed at Julia startup, to run with 1, 2, or 4 threads, use: `diputs_1t.sh`, `diputs_2t.sh`, or `diputs_4t.sh` respectively. You can also create your own wrapper script with a custom thread count. Say you can create `diputs_16t.sh` with 16 threads like this:
+```bash
+julia --project=. src/uci.jl 
+```
+
+
+
+**SMP (multi-threaded).** The thread count is fixed at Julia startup, to run with 1, 2, or 4 threads, use: `diputs_1t.sh`, `diputs_2t.sh`, or `diputs_4t.sh` respectively. You can also create your own wrapper script with a custom thread count:
 
 ```bash
 #!/bin/bash
@@ -50,9 +50,7 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 exec julia --threads=16 --project="$DIR" "$DIR/src/uci.jl"
 ```
 
-make it executable, and then point your GUI to it. 
-
-2-threaded version gains around 50 Elo against the single-threaded version (based on testing). For normal use, 2 threads are recommended. I haven't tested >2 threads thoroughly
+make it executable, and then point your GUI to it. 2-threaded version gains around 50 Elo against the single-threaded version (based on testing). For normal use, 2 threads are recommended. I haven't tested >2 threads thoroughly
 
 ```
 Results of DIPUTEXP-SMP vs Diputs (10+0.1, NULL - 4t, 256MB, UHO_Lichess_4852_v1.epd):
