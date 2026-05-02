@@ -309,12 +309,6 @@ function quiescence(b::Board, α::Int, β::Int, ply::Int, key_history::Vector{UI
     _SELDEPTH[tid] = max(_SELDEPTH[tid], ply)
     search_stopped[] && return 0
 
-    cnt = 0
-    for k in key_history
-        k == b.key && (cnt += 1)
-        cnt ≥ 2 && return 0
-    end
-
     stand_pat = nnue_eval(nnue_accs[tid], b, nnue_net)
     stand_pat ≥ β && return stand_pat
     α = max(α, stand_pat)
