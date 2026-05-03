@@ -138,10 +138,36 @@ const killers      = fill(Move(0), 2, 256, _N_THREADS)
 const move_stack   = fill((0, 0), 256, _N_THREADS)
 const _MOVE_SCORES = zeros(Int,   256, 256, _N_THREADS)
 
+const _PAWN_HIST_SIZE = 1 << 14
+const _PAWN_HIST_MASK = _PAWN_HIST_SIZE - 1
+const pawn_hist       = zeros(Int16, 6, 64, _PAWN_HIST_SIZE, _N_THREADS)  # [pt, to, ph, tid]
+
+@inline pawn_key(b::Board)::UInt64 = b.bb[BB_WP] ⊻ b.bb[BB_BB]
+
+@inline function pawn_hist_idx(b::Board)::Int
+    pk = pawn_key(b)
+    pk = pk ⊻ (pk >> 33)
+    pk *= 0xFF51AFD7ED558CCD
+    pk = pk ⊻ (pk >> 33)
+    Int(pk & _PAWN_HIST_MASK) + 1
+end
+
+@inline function pawn_hist_score(b::Board, pt::Int, to::Int, tid::Int)::Int
+    Int(pawn_hist[pt, to, pawn_hist_idx(b), tid])
+end
+
+@inline function update_pawn_hist!(b::Board, pt::Int, to::Int, bonus::Int, tid::Int)
+    idx = pawn_hist_idx(b)
+    old = Int(pawn_hist[pt, to, idx, tid])
+    clamped = clamp(bonus, -MAX_HISTORY, MAX_HISTORY)
+    pawn_hist[pt, to, idx, tid] = Int16(old + clamped - old * abs(clamped) ÷ MAX_HISTORY)
+end
+
 function clear_history()
     fill!(history, 0)
     fill!(cont_hist, Int16(0))
     fill!(cont_hist2, Int16(0))
+    fill!(pawn_hist, Int16(0))
     fill!(killers, Move(0))
     fill!(move_stack, (0, 0))
     fill!(_CORR_TABLE, Int16(0))
@@ -300,7 +326,8 @@ const _SCORE_KILLER  =    90_000
     prev2_pt, prev2_to = ply > 2 ? move_stack[ply - 1, tid] : (0, 0)
     ch  = prev_pt  > 0 ? @inbounds(Int(cont_hist[to(m).val,  cur_pt, prev_to,  prev_pt,  color, tid])) : 0
     ch2 = prev2_pt > 0 ? @inbounds(Int(cont_hist2[to(m).val, cur_pt, prev2_to, prev2_pt, color, tid])) : 0
-    return @inbounds(history[color, from(m).val, to(m).val, tid]) + (ch ÷ 2) + (ch2 ÷ 3)
+    ph  = pawn_hist_score(b, cur_pt, to(m).val, tid)
+    return @inbounds(history[color, from(m).val, to(m).val, tid]) + (ch ÷ 2) + (ch2 ÷ 3) + (ph ÷ 2)
 end
 
 function sort_moves!(
@@ -342,6 +369,7 @@ function quiescence(b::Board, α::Int, β::Int, ply::Int, key_history::Vector{UI
     _SELDEPTH[tid] = max(_SELDEPTH[tid], ply)
     search_stopped[] && return 0
 
+    # Probe TT with depth -1 
     hit, tt_score, tt_flag, _, _, _ = probe_tt(b.key, DEPTH_QS, ply)
     if hit
         if (tt_flag == TT_LOWER && tt_score ≥ β) || (tt_flag == TT_UPPER && tt_score ≤ α)
@@ -349,6 +377,7 @@ function quiescence(b::Board, α::Int, β::Int, ply::Int, key_history::Vector{UI
         end
     end
 
+    # Exhaust captures
     stand_pat = nnue_eval(nnue_accs[tid], b, nnue_net)
     if stand_pat ≥ β
         !search_stopped[] && store_tt(b.key, DEPTH_QS, stand_pat, TT_LOWER, false, Move(0), ply)
@@ -400,6 +429,7 @@ function quiescence(b::Board, α::Int, β::Int, ply::Int, key_history::Vector{UI
         α ≥ β && break
     end
 
+    # Store result in TT at depth -1
     if !search_stopped[]
         flag = best ≥ β ? TT_LOWER : TT_UPPER
         store_tt(b.key, DEPTH_QS, best, flag, false, best_move, ply)
@@ -630,10 +660,12 @@ function negamax(
                         bonus = depth * depth
                         update_history!(stm, from(m).val, to(m).val, bonus, tid)
                         update_cont_hist!(stm, ply, cur_pt, to(m).val, bonus, tid)
+                        update_pawn_hist!(b, cur_pt, to(m).val, bonus, tid)
                         for qm in searched_quiets
                             qm_pt = ptype(pieceon(b, from(qm))).val
                             update_history!(stm, from(qm).val, to(qm).val, -bonus, tid)
                             update_cont_hist!(stm, ply, qm_pt, to(qm).val, -bonus, tid)
+                            update_pawn_hist!(b, qm_pt, to(qm).val, -bonus, tid)
                         end
                     end
                     break
@@ -702,6 +734,8 @@ function search(b::Board, max_depth::Int, tid::Int)::UInt64
     @inbounds for i in eachindex(hv);  hv[i]  >>= 1; end
     @inbounds for i in eachindex(cv);  cv[i]  >>= 1; end
     @inbounds for i in eachindex(cv2); cv2[i] >>= 1; end
+    phv = @view pawn_hist[:, :, :, tid]
+    @inbounds for i in eachindex(phv); phv[i] >>= 1; end
     kv = @view killers[:, :, tid]
     fill!(kv, Move(0))
 
