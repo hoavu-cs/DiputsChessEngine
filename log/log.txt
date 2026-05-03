@@ -1,5 +1,17 @@
 === SPRT Results Log ===
 
+feae7be  - TT probe and store in quiescence search
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (15+0.15, NULL, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 26.67 +/- 15.88, nElo: 42.88 +/- 25.41
+LOS: 99.95 %, DrawRatio: 43.18 %, PairsRatio: 1.62
+Games: 718, Wins: 224, Losses: 169, Draws: 325, Points: 386.5 (53.83 %)
+Ptnml(0-2): [10, 68, 155, 109, 17], WL/DD Ratio: 1.09
+LLR: 2.20 (100.1%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
+
+
 ec5173e  - Non-pawn correction history 
 --------------------------------------------------
 Results of DIPUTEXP vs Diputs (15+0.15, NULL, 256MB, UHO_Lichess_4852_v1.epd):
