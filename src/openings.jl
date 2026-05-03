@@ -84,8 +84,6 @@ const _BOOK_LINES = [
     ["e2e4", "d7d6", "d2d4", "g8f6", "b1c3", "g7g6", "c1e3", "f8g7", "d1d2"],
     # Scandinavian
     ["e2e4", "d7d5", "e4d5", "d8d5", "b1c3", "d5a5", "d2d4", "g8f6", "g1f3", "c8g4", "h2h3", "g4h5", "g2g4", "h5g6"],
-    # Modern
-    ["e2e4", "g7g6", "d2d4", "f8g7", "b1c3", "d7d6", "g1f3", "a7a6", "f1e2", "b7b5", "e1g1"],
 
     # ============================
     # 1. d4 d5 — Queen's Gambit
