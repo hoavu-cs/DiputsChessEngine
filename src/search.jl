@@ -28,6 +28,7 @@ const TT_LOWER   = Int8(1)
 const TT_UPPER   = Int8(2)
 const TT_EMPTY   = Int8(-1)
 const TT_MAX_PLY = 256
+const DEPTH_QS   = -1
 
 
 struct TTEntry
@@ -341,8 +342,18 @@ function quiescence(b::Board, α::Int, β::Int, ply::Int, key_history::Vector{UI
     _SELDEPTH[tid] = max(_SELDEPTH[tid], ply)
     search_stopped[] && return 0
 
+    hit, tt_score, tt_flag, _, _, _ = probe_tt(b.key, DEPTH_QS, ply)
+    if hit
+        if (tt_flag == TT_LOWER && tt_score ≥ β) || (tt_flag == TT_UPPER && tt_score ≤ α)
+            return tt_score
+        end
+    end
+
     stand_pat = nnue_eval(nnue_accs[tid], b, nnue_net)
-    stand_pat ≥ β && return stand_pat
+    if stand_pat ≥ β
+        !search_stopped[] && store_tt(b.key, DEPTH_QS, stand_pat, TT_LOWER, false, Move(0), ply)
+        return stand_pat
+    end
     α = max(α, stand_pat)
 
     cap_buf = _MOVE_BUFS[tid][min(ply, _MAX_BUF_PLY - 1) + 1]
@@ -355,12 +366,16 @@ function quiescence(b::Board, α::Int, β::Int, ply::Int, key_history::Vector{UI
             cap_buf.moves[j] = m
         end
     end
-    j == 0 && return α
-    cap_view = view(cap_buf.moves, 1:j)
+    if j == 0
+        !search_stopped[] && store_tt(b.key, DEPTH_QS, α, TT_UPPER, false, Move(0), ply)
+        return α
+    end
+    cap_view = @view cap_buf.moves[1:j]
 
     sort_moves!(b, cap_view, ply, Move(0), Move(0), Move(0), tid)
 
-    best = stand_pat
+    best      = stand_pat
+    best_move = Move(0)
     for m in cap_view
         search_stopped[] && break
 
@@ -377,9 +392,17 @@ function quiescence(b::Board, α::Int, β::Int, ply::Int, key_history::Vector{UI
         undomove!(b, u)
         undo_update!(nnue_accs[tid], b, m, nnue_net)
 
-        best = max(best, sc)
-        α    = max(α, sc)
+        if sc > best
+            best      = sc
+            best_move = m
+        end
+        α = max(α, sc)
         α ≥ β && break
+    end
+
+    if !search_stopped[]
+        flag = best ≥ β ? TT_LOWER : TT_UPPER
+        store_tt(b.key, DEPTH_QS, best, flag, false, best_move, ply)
     end
 
     return best
