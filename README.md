@@ -1,6 +1,6 @@
 # Diputs Chess Engine
 
-A **highly unoriginal** non-competitive UCI chess engine for trolling. 
+A **somewhat unoriginal** non-competitive UCI chess engine for trolling. 
 
 I have ~~1 week~~ 2 weeks to work on this engine to brush up on Julia and to correct some of the bugs in my previous C++ engine.
 
