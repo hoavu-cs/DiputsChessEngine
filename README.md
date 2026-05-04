@@ -44,16 +44,7 @@ quit
 julia --project=. src/uci.jl 
 ```
 
-**SMP (multi-threaded).** The thread count is fixed at Julia startup, to run with 1, 2, or 4 threads, use: `diputs_1t.sh`, `diputs_2t.sh`, or `diputs_4t.sh` respectively. You can also create your own wrapper script with a custom thread count:
-
-```bash
-#!/bin/bash
-DIR="$(cd "$(dirname "$0")" && pwd)"
-exec julia --threads=16 --project="$DIR" "$DIR/src/uci.jl"
-```
-
-make it executable, and then point your GUI to it. 2-threaded version gains around 50 Elo against the single-threaded version (based on testing). For normal use, 2 threads are recommended. I haven't tested higher thread count thoroughly.
-
+**SMP (multi-threaded).** The thread count is fixed at Julia startup, to run with 1, 2, or 4 threads, use: `diputs_1t.sh`, `diputs_2t.sh`, or `diputs_4t.sh` respectively. You can also create your own wrapper script with a custom thread count (e.g., `--threads=16`).
 
 ### License
 
