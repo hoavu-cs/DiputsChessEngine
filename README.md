@@ -1,8 +1,10 @@
 # Diputs Chess Engine
 
-A non-competitive UCI chess engine for trolling.
-I have ~~1 week~~ 2 weeks to work on this engine to brush up on Julia.
-Julia, like Python, is highly portable and easy on the eyes. 
+A **highly unoriginal** non-competitive UCI chess engine for trolling. 
+
+I have ~~1 week~~ 2 weeks to work on this engine to brush up on Julia and to correct some of the bugs in my previous C++ engine.
+
+Julia, like Python, is highly portable and easy on the eyes (this is probably the only thing interesting about this engine). 
 
 **Strength**. This engine plays chess with an Elo. 
 60 games between commit a1e499a against Stash 37, 2:00+1, UHO_Lichess_4852_v1.epd, 1 thread, 256Mb hash each.
