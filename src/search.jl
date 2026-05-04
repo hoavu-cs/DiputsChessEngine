@@ -110,6 +110,8 @@ init_lmr_table!()
 const _MAX_BUF_PLY = 512
 # Pre-allocated per-thread, per-ply move buffers — eliminates ~2KB alloc per node
 const _MOVE_BUFS = [[MoveList() for _ in 1:_MAX_BUF_PLY] for _ in 1:_N_THREADS]
+# Separate buffers for singular searches to avoid clobbering the outer node's move list
+const _SING_BUFS = [[MoveList() for _ in 1:_MAX_BUF_PLY] for _ in 1:_N_THREADS]
 
 @inline function lmr_reduction(depth::Int, i::Int, in_check::Bool, is_capture::Bool, is_pv::Bool)::Int
     r = LMR_TABLE[depth, min(i, LMR_MOVES_MAX)]
@@ -471,7 +473,7 @@ function negamax(
     isdraw(b) && return 0
 
     buf_idx  = min(ply, _MAX_BUF_PLY - 1) + 1
-    ml_buf   = _MOVE_BUFS[tid][buf_idx]
+    ml_buf   = is_singular ? _SING_BUFS[tid][buf_idx] : _MOVE_BUFS[tid][buf_idx]
     generate_moves!(ml_buf, b)
     ml       = view(ml_buf.moves, 1:ml_buf.count)
     in_check = ischeck(b)
