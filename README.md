@@ -11,7 +11,7 @@ Julia, like Python, is highly portable and easy on the eyes (this is probably th
 ```
 Score of diputs.sh vs stash-37.0-linux-64: 34 - 11 - 15 [0.692]
 ```
-The current repo's code gives you the strongest version; releases are just stable checkpoints.
+The current repo's code gives you the strongest version (but like, who cares?); releases are stable checkpoints.
 
 **Running using a Wrapper Script and GUI**. Requirements: [Julia](https://julialang.org/downloads/) 1.9+. Make sure to add Julia to your PATH (while it's possible to create a binary using [PackageCompiler](https://julialang.github.io/PackageCompiler.jl/dev/), it kind of defeats the purpose of a fast scripting language). 
 
@@ -23,9 +23,7 @@ diputs_2t.sh   # 2-thread version
 diputs_4t.sh   # 4-thread version
 ```
 
-Make them executable first: `chmod +x diputs_1t.sh`.
-
-Then point the GUI program to it or run in the terminal.
+Make them executable first: `chmod +x diputs_1t.sh`. Then point the GUI program to it or run in the terminal.
 
 ```bash
 ./diputs_1t.sh
