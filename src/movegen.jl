@@ -45,7 +45,7 @@ const BB_WK = 6;   const BB_BK = 12
 #   [769..776] EP file:       _zob_ep(ep_square)
 #   [777..792] castle rights: _zob_castle(rights)  (rights = 0..15)
 #   [793]      side to move:  _ZOB_STM  (XOR when stm == 1)
-#
+# The trick is that XOR is associative which allows incremental update.
 # Incremental update in domove!/donullmove!; undomove! restores from UndoInfo.
 
 const _ZOB = let rng = MersenneTwister(1685)
