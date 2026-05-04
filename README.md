@@ -23,7 +23,7 @@ diputs_2t.sh   # 2-thread version
 diputs_4t.sh   # 4-thread version
 ```
 
-Make them executable first:
+Make them executable first: `chmod +x diputs_1t.sh`.
 
 Then point the GUI program to it or run in the terminal.
 
