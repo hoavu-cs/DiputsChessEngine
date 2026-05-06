@@ -99,7 +99,7 @@ const LMR_TABLE = zeros(Int, LMR_DEPTH_MAX, LMR_MOVES_MAX)
 function init_lmr_table!()
     for d in 1:LMR_DEPTH_MAX
         for i in 1:LMR_MOVES_MAX
-            R = 1 + log(d) * log(i) ÷ 3
+            R = 1 + log(d) * log(i) / 3
             LMR_TABLE[d, i] = clamp(round(Int, R), 1, d - 1)
         end
     end
@@ -549,11 +549,6 @@ function negamax(
         end
     end
 
-    # Razoring: at depth 1, if eval is far below alpha, just return qsearch
-    if depth == 1 && !in_check && !is_pv_node && eval + 300 ≤ α
-        return quiescence(b, α, β, ply, key_history, tid)
-    end
-
     k1  = ply ≤ 256 ? killers[1, ply, tid] : Move(0)
     k2  = ply ≤ 256 ? killers[2, ply, tid] : Move(0)
     sort_moves!(b, ml, ply, tt_best, k1, k2, tid)
@@ -567,6 +562,7 @@ function negamax(
 
     for (i, m) in enumerate(ml)
         m == excluded_move && continue
+
         lmr        = legal_moves > 1 && depth ≥ 3 && promotion(m) == PieceType(0)
         is_capture = moveiscapture(b, m)
         is_quiet   = !is_capture && promotion(m) == PieceType(0)
@@ -576,6 +572,11 @@ function negamax(
         if depth ≤ 8 && !in_check && is_quiet && !is_pv_node
             length(searched_quiets) ≥ (5 + depth * depth) ÷ (2 - Int(improving)) && continue
         end
+
+        # Continuation history pruning
+        # if !is_pv_node && !in_check && is_quiet && prev_pt > 0
+        #     @inbounds Int(cont_hist[to(m).val, cur_pt, prev_to, prev_pt, stm, tid]) < -(MAX_HISTORY ÷ 4) * depth && continue
+        # end
 
         # Singular extension: if the TT move is clearly better than all others,
         # extend it by 1. Prevents recursive singular searches via excluded_move guard.
@@ -609,9 +610,20 @@ function negamax(
         push!(key_history, b.key)
         move_stack[ply + 1, tid] = (cur_pt, to(m).val)
 
-
         R  = lmr ? lmr_reduction(depth, legal_moves, ischeck(b), is_capture, is_pv_node) : 0
 
+        # # Quiet move futility: if even the maximum reasonable improvement
+        # # can't reach alpha, skip this move entirely.
+        # if is_quiet && !in_check && !is_pv_node && R > 0 && depth ≤ 8 
+        #     lmr_depth = max(new_depth - R, 1)
+        #     futility_val = raw_eval + 50 + 150 * Int(best_move == Move(0)) + 150 * lmr_depth
+        #     if futility_val ≤ α
+        #         pop!(key_history)
+        #         undomove!(b, u)
+        #         undo_update!(nnue_accs[tid], b, m, nnue_net)
+        #         continue
+        #     end
+        # end
 
         if i == 1 && is_pv_node
             sc = -negamax(PVNode, b, new_depth, -β, -α, ply + 1, key_history, tid)
