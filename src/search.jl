@@ -139,7 +139,7 @@ const nnue_accs = [Accumulator() for _ in 1:_N_THREADS]
 # History Heuristics (per-thread, last dim = tid)
 # ============================================================
 
-const history      = zeros(Int,   2, 64, 64, _N_THREADS)
+const history      = zeros(Int16, 2, 64, 64, _N_THREADS)
 const cont_hist    = zeros(Int16, 64, 7, 64, 7, 2, _N_THREADS)
 const cont_hist2   = zeros(Int16, 64, 7, 64, 7, 2, _N_THREADS)
 const eval_stack   = zeros(Int,   257, _N_THREADS)   # [ply+1, tid]; [1, tid] = root eval
@@ -352,11 +352,11 @@ function sort_moves!(
     n      = length(ml)
     scores = @view _MOVE_SCORES[1:n, ply, tid]
 
-    for i in 1:n
+    @inbounds for i in 1:n
         scores[i] = score_move(b, ml[i], tt_best, k1, k2, ply; tid=tid)
     end
 
-    for i in 2:n
+    @inbounds for i in 2:n
         tmp_m = ml[i]
         tmp_s = scores[i]
         j = i - 1
@@ -728,11 +728,11 @@ function search(b::Board, max_depth::Int, tid::Int)::UInt64
     hv  = @view history[:, :, :, tid]
     cv  = @view cont_hist[:, :, :, :, :, tid]
     cv2 = @view cont_hist2[:, :, :, :, :, tid]
-    @inbounds for i in eachindex(hv);  hv[i]  >>= 1; end
-    @inbounds for i in eachindex(cv);  cv[i]  >>= 1; end
-    @inbounds for i in eachindex(cv2); cv2[i] >>= 1; end
+    @inbounds @simd for i in eachindex(hv);  hv[i]  >>= 1; end
+    @inbounds @simd for i in eachindex(cv);  cv[i]  >>= 1; end
+    @inbounds @simd for i in eachindex(cv2); cv2[i] >>= 1; end
     phv = @view pawn_hist[:, :, :, tid]
-    @inbounds for i in eachindex(phv); phv[i] >>= 1; end
+    @inbounds @simd for i in eachindex(phv); phv[i] >>= 1; end
     kv = @view killers[:, :, tid]
     fill!(kv, Move(0))
 
