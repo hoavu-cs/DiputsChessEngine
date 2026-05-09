@@ -210,7 +210,8 @@ end
     end
 end
 
-const search_deadline = Ref{UInt64}(typemax(UInt64))
+const search_deadline      = Ref{UInt64}(typemax(UInt64))
+const search_soft_deadline = Ref{UInt64}(typemax(UInt64))
 
 # ============================================================
 # Correction History
@@ -766,6 +767,8 @@ function search(b::Board, max_depth::Int, tid::Int)::UInt64
         _ROOT_DEPTH[tid] = depth
         search_stopped[] && break
 
+        prev_best  = best_move
+        had_asp_fail = false
         window     = 25
         asp_α      = depth ≥ 6 ? prev_score - window : -∞
         asp_β      = depth ≥ 6 ? prev_score + window :  ∞
@@ -830,9 +833,11 @@ function search(b::Board, max_depth::Int, tid::Int)::UInt64
             search_stopped[] && break
 
             if α ≤ asp_α
+                had_asp_fail = true
                 window *= 2
                 asp_α = window ≥ 200 ? -∞ : max(asp_α - window, -∞)
             elseif α ≥ asp_β
+                had_asp_fail = true
                 iter_best ≠ Move(0) && (depth_best = iter_best; best_score = α)
                 window *= 2
                 asp_β = window ≥ 200 ?  ∞ : min(asp_β + window, ∞)
@@ -858,7 +863,11 @@ function search(b::Board, max_depth::Int, tid::Int)::UInt64
             end
         end
 
-        time_ns() ≥ search_deadline[] && break
+        now = time_ns()
+        now ≥ search_deadline[] && break
+        if now ≥ search_soft_deadline[]
+            !had_asp_fail && best_move ≠ Move(0) && best_move == prev_best && break
+        end
     end
 
     return best_move
@@ -868,13 +877,11 @@ end
 # SMP
 # ============================================================
 
-function smp_search(b::Board, max_depth::Int, time_limit::Int)::UInt64
+function smp_search(b::Board, max_depth::Int, time_soft::Int, time_hard::Int)::UInt64
     start_ns = time_ns()
-    if time_limit ≥ typemax(Int) >> 20
-        search_deadline[] = start_ns + 30_000_000_000
-    else
-        search_deadline[] = start_ns + UInt64(time_limit) * 1_000_000
-    end
+    inf_time = time_hard ≥ typemax(Int) >> 20
+    search_deadline[]      = inf_time ? start_ns + 30_000_000_000 : start_ns + UInt64(time_hard) * 1_000_000
+    search_soft_deadline[] = inf_time ? typemax(UInt64)           : start_ns + UInt64(time_soft) * 1_000_000
 
     n = _N_THREADS
     if n == 1

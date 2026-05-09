@@ -102,9 +102,9 @@ _init_book!()
 # Search Thread
 # ============================================================
 
-function search_thread(search_board::Board, search_depth::Int, time_limit::Int)
+function search_thread(search_board::Board, search_depth::Int, time_soft::Int, time_hard::Int)
     try
-        best_move = smp_search(search_board, search_depth, time_limit)
+        best_move = smp_search(search_board, search_depth, time_soft, time_hard)
         println(best_move ≠ Move(0) ? "bestmove $(tostring(best_move))" : "bestmove 0000")
         flush(stdout)
     catch e
@@ -129,7 +129,8 @@ function process_go(tokens::Vector{String})
     search_stopped[] = false
     search_running[] = true
 
-    time_limit    = 30000
+    time_soft     = 30000
+    time_hard     = 30000
     search_depth  = max_depth
     depth_limited = false
     wtime = btime = winc = binc = movestogo = movetime = 0
@@ -151,7 +152,7 @@ function process_go(tokens::Vector{String})
         elseif tokens[idx] == "depth" && idx + 1 ≤ length(tokens)
             search_depth  = parse(Int, tokens[idx + 1])
             depth_limited = true
-            time_limit    = typemax(Int)
+            time_soft = time_hard = typemax(Int)
             idx += 2
         else
             idx += 1
@@ -160,17 +161,19 @@ function process_go(tokens::Vector{String})
 
     if !depth_limited
         if movetime > 0
-            time_limit = movetime
+            time_soft = time_hard = movetime
         else
             my_time = sidetomove(board) == WHITE ? wtime : btime
             my_inc  = sidetomove(board) == WHITE ? winc  : binc
             if my_time > 0
-                time_limit = clamp(div(my_time, 20) + div(my_inc, 2), 0, div(my_time, 2))
+                overhead  = 50
+                time_soft = clamp(div(my_time, 20) + div(my_inc, 2), 0, div(my_time, 2))
+                time_hard = min(time_soft * 5 ÷ 2, my_time * 8 ÷ 10 - overhead)
             end
         end
     end
 
-    Threads.@spawn search_thread(deepcopy(board), search_depth, time_limit)
+    Threads.@spawn search_thread(deepcopy(board), search_depth, time_soft, time_hard)
 end
 
 function process_stop()
