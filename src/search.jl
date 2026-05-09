@@ -114,6 +114,11 @@ const _MOVE_BUFS = [[MoveList() for _ in 1:_MAX_BUF_PLY] for _ in 1:_N_THREADS]
 # Separate buffers for singular searches to avoid clobbering the outer node's move list
 const _SING_BUFS = [[MoveList() for _ in 1:_MAX_BUF_PLY] for _ in 1:_N_THREADS]
 
+const _NO_PV   = UInt64[]
+const _PV_BUFS = [[UInt64[] for _ in 1:256] for _ in 1:_N_THREADS]
+const _CAND_PV = [UInt64[] for _ in 1:_N_THREADS]
+const _ITER_PV = [UInt64[] for _ in 1:_N_THREADS]
+
 @inline function lmr_reduction(::Type{NT}, depth::Int, i::Int, in_check::Bool, is_capture::Bool)::Int where NT <: NodeType
     r = LMR_TABLE[depth, min(i, LMR_MOVES_MAX)]
     in_check   && (r = max(1, r - 1))
@@ -455,7 +460,8 @@ function negamax(
     β::Int,
     ply::Int,
     key_history::Vector{UInt64},
-    tid::Int;
+    tid::Int,
+    pv::Vector{UInt64} = _NO_PV;
     excluded_move::UInt64 = Move(0),
 )::Int where {NT <: NodeType}
 
@@ -628,8 +634,11 @@ function negamax(
         # PV: first legal → PVNode; others → CutNode
         # Cut: first legal → AllNode; others → CutNode
         # All: all children → CutNode
+        child_pv  = _NO_PV
+        child_idx = min(ply + 1, 256)
         if legal_moves == 1 && is_pv_node
-            sc = -negamax(PVNode, b, new_depth, -β, -α, ply + 1, key_history, tid)
+            child_pv = _PV_BUFS[tid][child_idx]; empty!(child_pv)
+            sc = -negamax(PVNode, b, new_depth, -β, -α, ply + 1, key_history, tid, child_pv)
         elseif is_cut_node && legal_moves == 1
             sc = -negamax(AllNode, b, new_depth - R, -α - 1, -α, ply + 1, key_history, tid)
             if sc > α && R > 0
@@ -640,7 +649,8 @@ function negamax(
             if sc > α
                 R > 0 && (sc = -negamax(CutNode, b, new_depth, -α - 1, -α, ply + 1, key_history, tid))
                 if is_pv_node && sc > α && sc < β
-                    sc = -negamax(PVNode, b, new_depth, -β, -α, ply + 1, key_history, tid)
+                    child_pv = _PV_BUFS[tid][child_idx]; empty!(child_pv)
+                    sc = -negamax(PVNode, b, new_depth, -β, -α, ply + 1, key_history, tid, child_pv)
                 end
             end
         end
@@ -656,6 +666,11 @@ function negamax(
             if sc > α
                 α    = sc
                 flag = TT_EXACT
+                if is_pv_node
+                    empty!(pv)
+                    push!(pv, m)
+                    append!(pv, child_pv)
+                end
 
                 if α ≥ β
                     flag = TT_LOWER
@@ -705,32 +720,6 @@ function negamax(
     return best_score
 end
 
-
-function extract_pv_from_tt(root::Board, max_len::Int, key_history::Vector{UInt64})::Vector{Move}
-    pv      = Move[]
-    bd      = deepcopy(root)
-    pv_keys = copy(key_history)
-    for _ in 1:max_len
-        cnt = 0
-        for k in pv_keys
-            k == bd.key && (cnt += 1)
-        end
-        cnt ≥ 2 && break
-        _, _, _, _, tt_move, _ = probe_tt(bd.key, 0, 0)
-        tt_move == Move(0) && break
-        tt_move ∈ moves(bd) || break
-        u = domove!(bd, tt_move)
-        if was_illegal(bd)
-            undomove!(bd, u)
-            break
-        end
-        push!(pv, tt_move)
-        push!(pv_keys, bd.key)   # record the reached position, not the old one
-        isdraw(bd) && break
-    end
-    return pv
-end
-
 # ============================================================
 # Iterative Deepening Root
 # ============================================================
@@ -762,6 +751,7 @@ function search(b::Board, max_depth::Int, tid::Int)::UInt64
     isempty(ml) && return best_move
 
     prev_score = 0
+    depth_pv   = UInt64[]
 
     for depth in 1:max_depth
         _ROOT_DEPTH[tid] = depth
@@ -805,8 +795,10 @@ function search(b::Board, max_depth::Int, tid::Int)::UInt64
 
                 R  = lmr ? lmr_reduction(PVNode, depth, root_legal, ischeck(b), is_capture) : 0
 
+                cand_pv = _CAND_PV[tid]; empty!(cand_pv)
+
                 if root_legal == 1
-                    sc = -negamax(PVNode, b, depth - 1, -asp_β, -α, 1, key_history, tid)
+                    sc = -negamax(PVNode, b, depth - 1, -asp_β, -α, 1, key_history, tid, cand_pv)
                 else
                     sc = -negamax(CutNode, b, depth - 1 - R, -α - 1, -α, 1, key_history, tid)
                     if sc > α
@@ -814,7 +806,7 @@ function search(b::Board, max_depth::Int, tid::Int)::UInt64
                             sc = -negamax(CutNode, b, depth - 1, -α - 1, -α, 1, key_history, tid)
                         end
                         if sc > α && sc < asp_β
-                            sc = -negamax(PVNode, b, depth - 1, -asp_β, -α, 1, key_history, tid)
+                            sc = -negamax(PVNode, b, depth - 1, -asp_β, -α, 1, key_history, tid, cand_pv)
                         end
                     end
                 end
@@ -826,6 +818,7 @@ function search(b::Board, max_depth::Int, tid::Int)::UInt64
                 if sc > α
                     α         = sc
                     iter_best = m
+                    copy!(_ITER_PV[tid], cand_pv)
                     α ≥ asp_β && break
                 end
             end
@@ -838,11 +831,16 @@ function search(b::Board, max_depth::Int, tid::Int)::UInt64
                 asp_α = window ≥ 200 ? -∞ : max(asp_α - window, -∞)
             elseif α ≥ asp_β
                 had_asp_fail = true
-                iter_best ≠ Move(0) && (depth_best = iter_best; best_score = α)
+                if iter_best ≠ Move(0)
+                    depth_best = iter_best
+                    depth_pv   = UInt64[]
+                    best_score = α
+                end
                 window *= 2
                 asp_β = window ≥ 200 ?  ∞ : min(asp_β + window, ∞)
             else
                 depth_best = iter_best
+                depth_pv   = _ITER_PV[tid]
                 best_score = α
                 break
             end
@@ -857,7 +855,7 @@ function search(b::Board, max_depth::Int, tid::Int)::UInt64
                 node_count = sum(_NODE_COUNT)
                 seldepth   = maximum(_SELDEPTH)
                 nps    = elapsed_ms > 0 ? div(node_count * 1000, elapsed_ms) : 0
-                pv_str = join(tostring.(extract_pv_from_tt(b, depth, key_history)), " ")
+                pv_str = join([tostring(depth_best); tostring.(depth_pv)], " ")
                 println("info depth $depth seldepth $seldepth score cp $best_score time $elapsed_ms nodes $node_count nps $nps pv $pv_str")
                 flush(stdout)
             end
