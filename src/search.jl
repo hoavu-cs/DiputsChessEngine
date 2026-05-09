@@ -9,8 +9,9 @@ const δ = 64
 const Γ = 16384
 
 abstract type NodeType end
-struct PVNode    <: NodeType end
-struct NonPVNode <: NodeType end
+struct PVNode  <: NodeType end
+struct CutNode <: NodeType end
+struct AllNode <: NodeType end
 
 const _N_THREADS = max(1, Threads.nthreads())
 const _NODE_COUNT   = fill(0, _N_THREADS)
@@ -113,11 +114,12 @@ const _MOVE_BUFS = [[MoveList() for _ in 1:_MAX_BUF_PLY] for _ in 1:_N_THREADS]
 # Separate buffers for singular searches to avoid clobbering the outer node's move list
 const _SING_BUFS = [[MoveList() for _ in 1:_MAX_BUF_PLY] for _ in 1:_N_THREADS]
 
-@inline function lmr_reduction(depth::Int, i::Int, in_check::Bool, is_capture::Bool, is_pv::Bool)::Int
+@inline function lmr_reduction(::Type{NT}, depth::Int, i::Int, in_check::Bool, is_capture::Bool)::Int where NT <: NodeType
     r = LMR_TABLE[depth, min(i, LMR_MOVES_MAX)]
     in_check   && (r = max(1, r - 1))
     is_capture && (r = max(1, r - 1))
-    !is_pv      && (r += 1)
+    NT === AllNode  && (r += 1)
+    NT === CutNode  && (r += 1)
     return min(r, depth - 1)
 end
 
@@ -488,7 +490,8 @@ function negamax(
 
     # TT look up for alpha-beta pruning
     hit, tt_score, tt_flag, tt_is_pv, tt_best, tt_stored_depth = probe_tt(b.key, depth, ply)
-    is_pv_node = (NT === PVNode)
+    is_pv_node  = (NT === PVNode)
+    is_cut_node = (NT === CutNode)
     if hit && !is_singular
         if tt_flag == TT_EXACT
             return tt_score
@@ -500,8 +503,8 @@ function negamax(
         α ≥ β && return tt_score
     end
 
-    # Internal iterative reduction
-    depth -= (tt_best == Move(0) && depth ≥ 3) ? 1 : 0
+    # Internal iterative reduction (skip at AllNodes)
+    depth -= (tt_best == Move(0) && depth ≥ 3 && (is_pv_node || is_cut_node)) ? 1 : 0
 
     # Raw NNUE eval
     raw_eval = nnue_eval(nnue_accs[tid], b, nnue_net)
@@ -524,8 +527,17 @@ function negamax(
     improving = !in_check && ply ≥ 3 && eval > eval_stack[ply - 1, tid]
 
     # Reverse futility pruning
-    if depth ≤ 8 && !in_check && !is_pv_node && !tt_is_pv
-        eval ≥ β + (175 * depth - 25 * improving) && return div(eval + β, 2)
+    if depth ≤ 7 && !in_check && !is_pv_node && !is_singular
+        if eval ≥ β + 175 * depth - 75 * improving
+            if tt_best == Move(0) || history[stm, from(tt_best).val, to(tt_best).val, tid] > 7000
+                return (eval + β) ÷ 2
+            end
+        end
+    end
+
+    # Razoring: at depth 1, if eval is far below alpha, just return qsearch
+    if depth == 1 && !in_check && !is_pv_node && eval + 300 ≤ α
+        return quiescence(b, α, β, ply, key_history, tid)
     end
 
     # Null move pruning
@@ -543,7 +555,7 @@ function negamax(
             R = min(4 + div(depth, 3) + min(div(eval - β, 200), 3), depth - 1)
             u = donullmove!(b)
             move_stack[ply + 1, tid] = (0, 0)
-            sc = -negamax(NonPVNode, b, depth - 1 - R, -β, -β + 1, ply + 1, key_history, tid)
+            sc = -negamax(CutNode, b, depth - 1 - R, -β, -β + 1, ply + 1, key_history, tid)
             undomove!(b, u)
             sc ≥ β && return sc
         end
@@ -586,7 +598,7 @@ function negamax(
 
             singular_β  = tt_score - 6 * depth 
             singular_depth = (depth ÷ 2) + 1
-            sing_score = negamax(NonPVNode, b, singular_depth, singular_β - 1, singular_β,
+            sing_score = negamax(CutNode, b, singular_depth, singular_β - 1, singular_β,
                                  ply, key_history, tid; excluded_move = m)
             if sing_score < singular_β
                 ext = 1
@@ -610,29 +622,22 @@ function negamax(
         push!(key_history, b.key)
         move_stack[ply + 1, tid] = (cur_pt, to(m).val)
 
-        R  = lmr ? lmr_reduction(depth, legal_moves, ischeck(b), is_capture, is_pv_node) : 0
+        R  = lmr ? lmr_reduction(NT, depth, legal_moves, ischeck(b), is_capture) : 0
 
-        # # Quiet move futility: if even the maximum reasonable improvement
-        # # can't reach alpha, skip this move entirely.
-        # if is_quiet && !in_check && !is_pv_node && R > 0 && depth ≤ 8 
-        #     lmr_depth = max(new_depth - R, 1)
-        #     futility_val = raw_eval + 50 + 150 * Int(best_move == Move(0)) + 150 * lmr_depth
-        #     if futility_val ≤ α
-        #         pop!(key_history)
-        #         undomove!(b, u)
-        #         undo_update!(nnue_accs[tid], b, m, nnue_net)
-        #         continue
-        #     end
-        # end
-
-        if i == 1 && is_pv_node
+        # PV: first legal → PVNode; others → CutNode
+        # Cut: first legal → AllNode; others → CutNode
+        # All: all children → CutNode
+        if legal_moves == 1 && is_pv_node
             sc = -negamax(PVNode, b, new_depth, -β, -α, ply + 1, key_history, tid)
+        elseif is_cut_node && legal_moves == 1
+            sc = -negamax(AllNode, b, new_depth - R, -α - 1, -α, ply + 1, key_history, tid)
+            if sc > α && R > 0
+                sc = -negamax(AllNode, b, new_depth, -α - 1, -α, ply + 1, key_history, tid)
+            end
         else
-            sc = -negamax(NonPVNode, b, new_depth - R, -α - 1, -α, ply + 1, key_history, tid)
+            sc = -negamax(CutNode, b, new_depth - R, -α - 1, -α, ply + 1, key_history, tid)
             if sc > α
-                if R > 0
-                    sc = -negamax(NonPVNode, b, new_depth, -α - 1, -α, ply + 1, key_history, tid)
-                end
+                R > 0 && (sc = -negamax(CutNode, b, new_depth, -α - 1, -α, ply + 1, key_history, tid))
                 if is_pv_node && sc > α && sc < β
                     sc = -negamax(PVNode, b, new_depth, -β, -α, ply + 1, key_history, tid)
                 end
@@ -795,15 +800,15 @@ function search(b::Board, max_depth::Int, tid::Int)::UInt64
                 push!(key_history, b.key)
                 move_stack[1, tid] = (cur_pt, to(m).val)
 
-                R  = lmr ? lmr_reduction(depth, root_legal, ischeck(b), is_capture, true) : 0
+                R  = lmr ? lmr_reduction(PVNode, depth, root_legal, ischeck(b), is_capture) : 0
 
                 if root_legal == 1
                     sc = -negamax(PVNode, b, depth - 1, -asp_β, -α, 1, key_history, tid)
                 else
-                    sc = -negamax(NonPVNode, b, depth - 1 - R, -α - 1, -α, 1, key_history, tid)
+                    sc = -negamax(CutNode, b, depth - 1 - R, -α - 1, -α, 1, key_history, tid)
                     if sc > α
                         if R > 0
-                            sc = -negamax(NonPVNode, b, depth - 1, -α - 1, -α, 1, key_history, tid)
+                            sc = -negamax(CutNode, b, depth - 1, -α - 1, -α, 1, key_history, tid)
                         end
                         if sc > α && sc < asp_β
                             sc = -negamax(PVNode, b, depth - 1, -asp_β, -α, 1, key_history, tid)
