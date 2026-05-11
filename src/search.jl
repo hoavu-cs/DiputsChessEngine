@@ -465,7 +465,7 @@ function negamax(
     _NODE_COUNT[tid] += 1
     _SELDEPTH[tid] = max(_SELDEPTH[tid], ply)
     search_stopped[] && return 0
-    if time_ns() ≥ search_deadline[]
+    if _NODE_COUNT[tid] & 0x3FFF == 0 && time_ns() ≥ search_deadline[]
         search_stopped[] = true
         return 0
     end
