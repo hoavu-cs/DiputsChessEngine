@@ -518,10 +518,10 @@ function negamax(
                      + major_corr_value_w(b.bb[BB_WQ] | b.bb[BB_WR], stm) ÷ 2
                      + major_corr_value_b(b.bb[BB_BQ] | b.bb[BB_BR], stm) ÷ 2) ÷ Δ
 
-    # TT score overrides if it provides a tighter bound
-    if tt_flag == TT_EXACT ||
+    # TT score overrides if it provides a tighter bound (skip on PV nodes)
+    if !is_pv_node && (tt_flag == TT_EXACT ||
        (tt_flag == TT_LOWER && tt_score > eval) ||
-       (tt_flag == TT_UPPER && tt_score < eval)
+       (tt_flag == TT_UPPER && tt_score < eval))
         eval = tt_score
     end
     
