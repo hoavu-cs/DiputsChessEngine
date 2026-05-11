@@ -12,7 +12,7 @@ struct PVNode  <: NodeType end
 struct CutNode <: NodeType end
 struct AllNode <: NodeType end
 
-const _N_THREADS = max(1, Threads.nthreads())
+const _N_THREADS = max(1, Threads.nthreads() - 1)
 const _NODE_COUNT   = fill(0, _N_THREADS)
 const _SELDEPTH     = fill(0, _N_THREADS)
 const _ROOT_DEPTH    = fill(0, _N_THREADS)
@@ -465,7 +465,7 @@ function negamax(
     _NODE_COUNT[tid] += 1
     _SELDEPTH[tid] = max(_SELDEPTH[tid], ply)
     search_stopped[] && return 0
-    if _NODE_COUNT[tid] & 0x3FFF == 0 && time_ns() ≥ search_deadline[]
+    if time_ns() ≥ search_deadline[]
         search_stopped[] = true
         return 0
     end

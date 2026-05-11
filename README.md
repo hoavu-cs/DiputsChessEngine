@@ -37,7 +37,7 @@ quit
 
 **Running using Julia Directly**. You can also run the engine directly using Julia `julia --project=. src/uci.jl`
 
-**SMP (multi-threaded).** The thread count is fixed at Julia startup, to run with 1, 2, or 4 threads, use: `diputs_1t.sh`, `diputs_2t.sh`, or `diputs_4t.sh` respectively. You can also create your own wrapper script with a custom thread count (e.g., `--threads=16`).
+**SMP (multi-threaded).** The thread count is fixed at Julia startup, to run with 1, 2, or 4 threads, use: `diputs_1t.sh`, `diputs_2t.sh`, or `diputs_4t.sh` respectively. You can also create your own wrapper script with a custom thread count — pass N+1 threads to Julia to get N search threads (one thread is reserved for the UCI loop), e.g. `--threads=9` for 8 search threads.
 
 ### License
 
