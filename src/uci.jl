@@ -166,7 +166,7 @@ function process_go(tokens::Vector{String})
             my_time = sidetomove(board) == WHITE ? wtime : btime
             my_inc  = sidetomove(board) == WHITE ? winc  : binc
             if my_time > 0
-                overhead  = 50
+                overhead  = 100
                 time_soft = clamp(div(my_time, 20) + div(my_inc, 2), 0, div(my_time, 2))
                 time_hard = min(time_soft * 5 ÷ 2, my_time * 8 ÷ 10 - overhead)
             end
