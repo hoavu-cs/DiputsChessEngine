@@ -3,6 +3,7 @@
 const ∞        = 10_000_000
 const MATE_SCORE =  9_000_000
 
+const MAX_HISTORY = 16384
 const Δ = 256
 const δ = 64
 const Γ = 16384
@@ -137,14 +138,8 @@ const nnue_accs = [Accumulator() for _ in 1:_N_THREADS]
 # ============================================================
 # History Heuristics (per-thread, last dim = tid)
 # ============================================================
-"""
-    Gravity moving average update:
-    new = old + 0.25 * (bonus - old)
-        = 0.75 * old + 0.25 * bonus
-    Then clamp to [-Γ, Γ].
-"""
 
-const history      = zeros(Int16, 2, 64, 64, _N_THREADS)
+const history      = zeros(Int,   2, 64, 64, _N_THREADS)
 const cont_hist    = zeros(Int16, 64, 7, 64, 7, 2, _N_THREADS)
 const cont_hist2   = zeros(Int16, 64, 7, 64, 7, 2, _N_THREADS)
 const eval_stack   = zeros(Int,   257, _N_THREADS)   # [ply+1, tid]; [1, tid] = root eval
@@ -173,7 +168,8 @@ end
 @inline function update_pawn_hist!(b::Board, pt::Int, to::Int, bonus::Int, tid::Int)
     idx = pawn_hist_idx(b)
     old = Int(pawn_hist[pt, to, idx, tid])
-    pawn_hist[pt, to, idx, tid] = Int16(clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ))
+    clamped = clamp(bonus, -MAX_HISTORY, MAX_HISTORY)
+    pawn_hist[pt, to, idx, tid] = Int16(old + clamped - old * abs(clamped) ÷ MAX_HISTORY)
 end
 
 function clear_history()
@@ -190,9 +186,9 @@ function clear_history()
 end
 
 @inline function update_history!(color::Int, from_sq::Int, to_sq::Int, bonus::Int, tid::Int)
-    old = Int(history[color, from_sq, to_sq, tid])
-    newv = clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ)
-    @inbounds history[color, from_sq, to_sq, tid] = Int16(newv)
+    clamped = clamp(bonus, -MAX_HISTORY, MAX_HISTORY)
+    @inbounds history[color, from_sq, to_sq, tid] +=
+        clamped - history[color, from_sq, to_sq, tid] * abs(clamped) ÷ MAX_HISTORY
 end
 
 @inline function update_cont_hist!(
@@ -205,14 +201,16 @@ end
     prev_pt, prev_to   = ply > 1 ? move_stack[ply, tid]     : (0, 0)
     prev2_pt, prev2_to = ply > 2 ? move_stack[ply - 1, tid] : (0, 0)
     prev_pt == 0 && return
+    clamped = clamp(bonus, -MAX_HISTORY, MAX_HISTORY)
     @inbounds begin
         old = Int(cont_hist[cur_to, cur_pt, prev_to, prev_pt, stm, tid])
-        cont_hist[cur_to, cur_pt, prev_to, prev_pt, stm, tid] = Int16(clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ))
+        cont_hist[cur_to, cur_pt, prev_to, prev_pt, stm, tid] = Int16(old + clamped - old * abs(clamped) ÷ MAX_HISTORY)
     end
     if prev2_pt > 0
+        clamped2 = clamp(bonus, -MAX_HISTORY, MAX_HISTORY)
         @inbounds begin
             old2 = Int(cont_hist2[cur_to, cur_pt, prev2_to, prev2_pt, stm, tid])
-            cont_hist2[cur_to, cur_pt, prev2_to, prev2_pt, stm, tid] = Int16(clamp(old2 + (bonus - old2) * δ ÷ Δ, -Γ, Γ))
+            cont_hist2[cur_to, cur_pt, prev2_to, prev2_pt, stm, tid] = Int16(old2 + clamped2 - old2 * abs(clamped2) ÷ MAX_HISTORY)
         end
     end
 end
@@ -234,6 +232,12 @@ const _CORR_TABLE   = zeros(Int16, 2, _CORR_SIZE)  # [white, black]
     Int(_CORR_TABLE[color, Int(key & _CORR_MASK) + 1])
 end
 
+"""
+    Gravity moving average update:
+    new = old + 0.25 * (bonus - old)
+        = 0.75 * old + 0.25 * bonus
+    Then clamp to [-Γ, Γ].
+"""
 @inline function corr_update!(key::UInt64, color::Int, bonus::Int)
     idx  = Int(key & _CORR_MASK) + 1
     old  = Int(_CORR_TABLE[color, idx])
@@ -348,11 +352,11 @@ function sort_moves!(
     n      = length(ml)
     scores = @view _MOVE_SCORES[1:n, ply, tid]
 
-    @inbounds for i in 1:n
+    for i in 1:n
         scores[i] = score_move(b, ml[i], tt_best, k1, k2, ply; tid=tid)
     end
 
-    @inbounds for i in 2:n
+    for i in 2:n
         tmp_m = ml[i]
         tmp_s = scores[i]
         j = i - 1
@@ -518,10 +522,10 @@ function negamax(
                      + major_corr_value_w(b.bb[BB_WQ] | b.bb[BB_WR], stm) ÷ 2
                      + major_corr_value_b(b.bb[BB_BQ] | b.bb[BB_BR], stm) ÷ 2) ÷ Δ
 
-    # TT score overrides if it provides a tighter bound (skip on PV nodes)
-    if !is_pv_node && (tt_flag == TT_EXACT ||
+    # TT score overrides if it provides a tighter bound
+    if tt_flag == TT_EXACT ||
        (tt_flag == TT_LOWER && tt_score > eval) ||
-       (tt_flag == TT_UPPER && tt_score < eval))
+       (tt_flag == TT_UPPER && tt_score < eval)
         eval = tt_score
     end
     
@@ -590,7 +594,7 @@ function negamax(
 
         # Continuation history pruning
         # if !is_pv_node && !in_check && is_quiet && prev_pt > 0
-        #     @inbounds Int(cont_hist[to(m).val, cur_pt, prev_to, prev_pt, stm, tid]) < -(Γ ÷ 4) * depth && continue
+        #     @inbounds Int(cont_hist[to(m).val, cur_pt, prev_to, prev_pt, stm, tid]) < -(MAX_HISTORY ÷ 4) * depth && continue
         # end
 
         # Singular extension: if the TT move is clearly better than all others,
@@ -721,6 +725,14 @@ end
 # ============================================================
 
 function search(b::Board, max_depth::Int, tid::Int)::UInt64
+    hv  = @view history[:, :, :, tid]
+    cv  = @view cont_hist[:, :, :, :, :, tid]
+    cv2 = @view cont_hist2[:, :, :, :, :, tid]
+    @inbounds for i in eachindex(hv);  hv[i]  >>= 1; end
+    @inbounds for i in eachindex(cv);  cv[i]  >>= 1; end
+    @inbounds for i in eachindex(cv2); cv2[i] >>= 1; end
+    phv = @view pawn_hist[:, :, :, tid]
+    @inbounds for i in eachindex(phv); phv[i] >>= 1; end
     kv = @view killers[:, :, tid]
     fill!(kv, Move(0))
 
