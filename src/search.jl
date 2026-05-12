@@ -528,6 +528,11 @@ function negamax(
     eval_stack[ply + 1, tid] = eval
     improving = !in_check && ply ≥ 3 && eval > eval_stack[ply - 1, tid]
 
+    # Negative extension: reduce depth when eval is far below alpha
+    if depth ≥ 4 && !in_check && !is_pv_node && !is_singular && eval < α - 100 * depth
+        depth -= 1
+    end
+
     # Reverse futility pruning
     if depth ≤ 7 && !in_check && !is_pv_node && !is_singular
         if eval ≥ β + 175 * depth - 75 * improving
