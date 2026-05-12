@@ -39,7 +39,7 @@ quit
 
 **SMP (multi-threaded).** The thread count is fixed at Julia startup, to run with 1 or 2, threads, use: `diputs_1t.sh`, or `diputs_2t.sh` respectively. You can also create your own wrapper script with a custom thread count (e.g., `--threads=17`). Allocate 1 extra thread for uci.jl.
 
-2-threaded version has been tested. Adding more threads makes the engine blunders sometimes (investigating when I have time...).
+2-threaded version has been tested.
 
 ### License
 
