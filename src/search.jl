@@ -44,12 +44,9 @@ const TT_ENTRY_NULL = TTEntry(0, -1, 0, TT_EMPTY, false, Move(0))
 
 tt::Vector{TTEntry}         = Vector{TTEntry}(undef, 1 << 22)
 tt_mask::UInt64             = UInt64((1 << 22) - 1)
-tt_locks::Vector{Threads.SpinLock} = [Threads.SpinLock() for _ in 1:(1 << 22)]
-
 function init_tt()
     global tt      = Vector{TTEntry}(undef, 1 << 22)
     global tt_mask = UInt64((1 << 22) - 1)
-    global tt_locks = [Threads.SpinLock() for _ in 1:(1 << 22)]
     fill!(tt, TT_ENTRY_NULL)
 end
 
@@ -65,15 +62,12 @@ function resize_tt(mb::Int)
     end
     global tt      = Vector{TTEntry}(undef, size)
     global tt_mask = UInt64(size - 1)
-    global tt_locks = [Threads.SpinLock() for _ in 1:size]
     fill!(tt, TT_ENTRY_NULL)
 end
 
 @inline function probe_tt(key::UInt64, depth::Int, ply::Int)
     idx = Int(key & tt_mask) + 1
-    lock(tt_locks[idx])
     entry = tt[idx]
-    unlock(tt_locks[idx])
     (entry.flag == TT_EMPTY || entry.key ≠ key) && return (false, 0, TT_EMPTY, false, Move(0), -1)
     score = entry.score
     if abs(score) > MATE_SCORE - TT_MAX_PLY
@@ -88,9 +82,7 @@ end
     if abs(score) > MATE_SCORE - TT_MAX_PLY
         stored = score + (score > 0 ? ply : -ply)
     end
-    lock(tt_locks[idx])
     tt[idx] = TTEntry(key, Int32(depth), Int32(stored), flag, is_pv, best)
-    unlock(tt_locks[idx])
 end
 
 init_tt()
@@ -727,7 +719,7 @@ end
 # Iterative Deepening Root
 # ============================================================
 
-function search(b::Board, max_depth::Int, tid::Int)::UInt64
+function search(b::Board, max_depth::Int, tid::Int; depth_offset::Int=0)::UInt64
     kv = @view killers[:, :, tid]
     fill!(kv, Move(0))
 
@@ -748,7 +740,7 @@ function search(b::Board, max_depth::Int, tid::Int)::UInt64
     prev_score = 0
     depth_pv   = UInt64[]
 
-    for depth in 1:max_depth
+    for depth in (1 + depth_offset):max_depth
         _ROOT_DEPTH[tid] = depth
         search_stopped[] && break
 
@@ -887,10 +879,12 @@ function smp_search(b::Board, max_depth::Int, time_soft::Int, time_hard::Int)::U
     end
 
     # threads 2 to n will just populate the TT.
+    # Alternate depth offset so helpers are out of phase with the main thread.
     tasks = Vector{Task}(undef, n)
     for tid in 2:n
         b_copy = deepcopy(b)
-        tasks[tid] = Threads.@spawn search(b_copy, max_depth, tid)
+        offset = (tid - 1) % 2  # tid=2 → 1, tid=3 → 0, tid=4 → 1, ...
+        tasks[tid] = Threads.@spawn search(b_copy, max_depth, tid; depth_offset=offset)
     end
 
     # thread 1 is the master thread that reports the result. 
