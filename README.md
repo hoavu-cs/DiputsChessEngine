@@ -30,17 +30,14 @@ Make them executable first: `chmod +x diputs_1t.sh`. Then point the GUI program 
 uci
 isready
 position startpos
-go depth 20
+go 
 ...
-quit
 ```
 
 
 **Running using Julia Directly**. You can also run the engine directly using Julia `julia --project=. src/uci.jl`
 
-**SMP (multi-threaded).** The thread count is fixed at Julia startup, to run with 1 or 2, threads, use: `diputs_1t.sh`, or `diputs_2t.sh` respectively. You can also create your own wrapper script with a custom thread count (e.g., `--threads=17`). Allocate 1 extra thread for uci.jl.
-
-2-threaded version has been tested.
+**SMP (multi-threaded).** The thread count is fixed at Julia startup, to run with 1 or 2, threads, use: `diputs_1t.sh`, or `diputs_2t.sh` respectively. You can also create your own wrapper script with a custom thread count (e.g., `--threads=17`). Allocate 1 extra thread for uci.jl. 2-threaded version has been tested.
 
 ### License
 
