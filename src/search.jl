@@ -528,11 +528,6 @@ function negamax(
     eval_stack[ply + 1, tid] = eval
     improving = !in_check && ply ≥ 3 && eval > eval_stack[ply - 1, tid]
 
-    # Negative extension: reduce depth when eval is far below alpha
-    if depth ≥ 4 && !in_check && !is_pv_node && !is_singular && eval < α - 100 * depth
-        depth -= 1
-    end
-
     # Reverse futility pruning
     if depth ≤ 7 && !in_check && !is_pv_node && !is_singular
         if eval ≥ β + 175 * depth - 75 * improving
@@ -566,6 +561,13 @@ function negamax(
             undomove!(b, u)
             sc ≥ β && return sc
         end
+    end
+
+    # Mini-probcut: TT lower bound well above beta ⟹ prune
+    if (tt_flag == TT_LOWER || tt_flag == TT_EXACT) && tt_stored_depth ≥ depth - 3 &&
+       tt_score ≥ β + 500 && abs(β) < MATE_SCORE - TT_MAX_PLY &&
+       abs(tt_score) < MATE_SCORE - TT_MAX_PLY && !is_singular
+        return β + 500
     end
 
     k1  = ply ≤ 256 ? killers[1, ply, tid] : Move(0)
