@@ -6,10 +6,11 @@ I have ~~1 week~~ 2 weeks to work on this engine to brush up on Julia and to cor
 
 **Strength**. This engine plays chess with an Elo and tries to win at the game of chess.
 
-60 games between commit a1e499a against Stash 37, 2:00+1, UHO_Lichess_4852_v1.epd, 1 thread, 256Mb hash each.
-```
-Score of diputs.sh vs stash-37.0-linux-64: 34 - 11 - 15 [0.692]
-```
+2:00+1, UHO_Lichess_4852_v1.epd, 1 thread, 256Mb hash each.
+
+- commit a1e499a against Stash 37 `diputs_1t.sh  vs stash-37.0-linux-64: 34 - 11 - 15 [0.692]`
+- v1.0.6 against Weiawaga 6. `diputs_1t.sh vs Weiawaga-baseline: 22 - 17 - 41 [0.531]`
+
 The current repo's code gives you the strongest version; releases are stable checkpoints.
 
 **Running using a Wrapper Script and GUI**. Requirements: [Julia](https://julialang.org/downloads/) 1.9+. Make sure to add Julia to your PATH (while it's possible to create a binary using [PackageCompiler](https://julialang.github.io/PackageCompiler.jl/dev/), it kind of defeats the purpose of a fast scripting language). 
