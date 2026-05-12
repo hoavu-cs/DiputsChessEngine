@@ -3,7 +3,6 @@
 const ∞        = 10_000_000
 const MATE_SCORE =  9_000_000
 
-const MAX_HISTORY = 16384
 const Δ = 256
 const δ = 64
 const Γ = 16384
@@ -43,12 +42,14 @@ end
 
 const TT_ENTRY_NULL = TTEntry(0, -1, 0, TT_EMPTY, false, Move(0))
 
-tt::Vector{TTEntry}  = Vector{TTEntry}(undef, 1 << 22)
-tt_mask::UInt64      = UInt64((1 << 22) - 1)
+tt::Vector{TTEntry}         = Vector{TTEntry}(undef, 1 << 22)
+tt_mask::UInt64             = UInt64((1 << 22) - 1)
+tt_locks::Vector{Threads.SpinLock} = [Threads.SpinLock() for _ in 1:(1 << 22)]
 
 function init_tt()
     global tt      = Vector{TTEntry}(undef, 1 << 22)
     global tt_mask = UInt64((1 << 22) - 1)
+    global tt_locks = [Threads.SpinLock() for _ in 1:(1 << 22)]
     fill!(tt, TT_ENTRY_NULL)
 end
 
@@ -64,12 +65,15 @@ function resize_tt(mb::Int)
     end
     global tt      = Vector{TTEntry}(undef, size)
     global tt_mask = UInt64(size - 1)
+    global tt_locks = [Threads.SpinLock() for _ in 1:size]
     fill!(tt, TT_ENTRY_NULL)
 end
 
 @inline function probe_tt(key::UInt64, depth::Int, ply::Int)
-    idx   = Int(key & tt_mask) + 1
+    idx = Int(key & tt_mask) + 1
+    lock(tt_locks[idx])
     entry = tt[idx]
+    unlock(tt_locks[idx])
     (entry.flag == TT_EMPTY || entry.key ≠ key) && return (false, 0, TT_EMPTY, false, Move(0), -1)
     score = entry.score
     if abs(score) > MATE_SCORE - TT_MAX_PLY
@@ -84,7 +88,9 @@ end
     if abs(score) > MATE_SCORE - TT_MAX_PLY
         stored = score + (score > 0 ? ply : -ply)
     end
+    lock(tt_locks[idx])
     tt[idx] = TTEntry(key, Int32(depth), Int32(stored), flag, is_pv, best)
+    unlock(tt_locks[idx])
 end
 
 init_tt()
@@ -138,8 +144,14 @@ const nnue_accs = [Accumulator() for _ in 1:_N_THREADS]
 # ============================================================
 # History Heuristics (per-thread, last dim = tid)
 # ============================================================
+"""
+    Gravity moving average update:
+    new = old + 0.25 * (bonus - old)
+        = 0.75 * old + 0.25 * bonus
+    Then clamp to [-Γ, Γ].
+"""
 
-const history      = zeros(Int,   2, 64, 64, _N_THREADS)
+const history      = zeros(Int16, 2, 64, 64, _N_THREADS)
 const cont_hist    = zeros(Int16, 64, 7, 64, 7, 2, _N_THREADS)
 const cont_hist2   = zeros(Int16, 64, 7, 64, 7, 2, _N_THREADS)
 const eval_stack   = zeros(Int,   257, _N_THREADS)   # [ply+1, tid]; [1, tid] = root eval
@@ -168,8 +180,7 @@ end
 @inline function update_pawn_hist!(b::Board, pt::Int, to::Int, bonus::Int, tid::Int)
     idx = pawn_hist_idx(b)
     old = Int(pawn_hist[pt, to, idx, tid])
-    clamped = clamp(bonus, -MAX_HISTORY, MAX_HISTORY)
-    pawn_hist[pt, to, idx, tid] = Int16(old + clamped - old * abs(clamped) ÷ MAX_HISTORY)
+    pawn_hist[pt, to, idx, tid] = Int16(clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ))
 end
 
 function clear_history()
@@ -186,9 +197,9 @@ function clear_history()
 end
 
 @inline function update_history!(color::Int, from_sq::Int, to_sq::Int, bonus::Int, tid::Int)
-    clamped = clamp(bonus, -MAX_HISTORY, MAX_HISTORY)
-    @inbounds history[color, from_sq, to_sq, tid] +=
-        clamped - history[color, from_sq, to_sq, tid] * abs(clamped) ÷ MAX_HISTORY
+    old = Int(history[color, from_sq, to_sq, tid])
+    newv = clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ)
+    @inbounds history[color, from_sq, to_sq, tid] = Int16(newv)
 end
 
 @inline function update_cont_hist!(
@@ -201,16 +212,14 @@ end
     prev_pt, prev_to   = ply > 1 ? move_stack[ply, tid]     : (0, 0)
     prev2_pt, prev2_to = ply > 2 ? move_stack[ply - 1, tid] : (0, 0)
     prev_pt == 0 && return
-    clamped = clamp(bonus, -MAX_HISTORY, MAX_HISTORY)
     @inbounds begin
         old = Int(cont_hist[cur_to, cur_pt, prev_to, prev_pt, stm, tid])
-        cont_hist[cur_to, cur_pt, prev_to, prev_pt, stm, tid] = Int16(old + clamped - old * abs(clamped) ÷ MAX_HISTORY)
+        cont_hist[cur_to, cur_pt, prev_to, prev_pt, stm, tid] = Int16(clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ))
     end
     if prev2_pt > 0
-        clamped2 = clamp(bonus, -MAX_HISTORY, MAX_HISTORY)
         @inbounds begin
             old2 = Int(cont_hist2[cur_to, cur_pt, prev2_to, prev2_pt, stm, tid])
-            cont_hist2[cur_to, cur_pt, prev2_to, prev2_pt, stm, tid] = Int16(old2 + clamped2 - old2 * abs(clamped2) ÷ MAX_HISTORY)
+            cont_hist2[cur_to, cur_pt, prev2_to, prev2_pt, stm, tid] = Int16(clamp(old2 + (bonus - old2) * δ ÷ Δ, -Γ, Γ))
         end
     end
 end
@@ -232,12 +241,6 @@ const _CORR_TABLE   = zeros(Int16, 2, _CORR_SIZE)  # [white, black]
     Int(_CORR_TABLE[color, Int(key & _CORR_MASK) + 1])
 end
 
-"""
-    Gravity moving average update:
-    new = old + 0.25 * (bonus - old)
-        = 0.75 * old + 0.25 * bonus
-    Then clamp to [-Γ, Γ].
-"""
 @inline function corr_update!(key::UInt64, color::Int, bonus::Int)
     idx  = Int(key & _CORR_MASK) + 1
     old  = Int(_CORR_TABLE[color, idx])
@@ -469,7 +472,7 @@ function negamax(
     _NODE_COUNT[tid] += 1
     _SELDEPTH[tid] = max(_SELDEPTH[tid], ply)
     search_stopped[] && return 0
-    if time_ns() ≥ search_deadline[]
+    if _NODE_COUNT[tid] & 0x3FFF == 0 && time_ns() ≥ search_deadline[]
         search_stopped[] = true
         return 0
     end
@@ -594,7 +597,7 @@ function negamax(
 
         # Continuation history pruning
         # if !is_pv_node && !in_check && is_quiet && prev_pt > 0
-        #     @inbounds Int(cont_hist[to(m).val, cur_pt, prev_to, prev_pt, stm, tid]) < -(MAX_HISTORY ÷ 4) * depth && continue
+        #     @inbounds Int(cont_hist[to(m).val, cur_pt, prev_to, prev_pt, stm, tid]) < -(Γ ÷ 4) * depth && continue
         # end
 
         # Singular extension: if the TT move is clearly better than all others,
@@ -725,14 +728,6 @@ end
 # ============================================================
 
 function search(b::Board, max_depth::Int, tid::Int)::UInt64
-    hv  = @view history[:, :, :, tid]
-    cv  = @view cont_hist[:, :, :, :, :, tid]
-    cv2 = @view cont_hist2[:, :, :, :, :, tid]
-    @inbounds for i in eachindex(hv);  hv[i]  >>= 1; end
-    @inbounds for i in eachindex(cv);  cv[i]  >>= 1; end
-    @inbounds for i in eachindex(cv2); cv2[i] >>= 1; end
-    phv = @view pawn_hist[:, :, :, tid]
-    @inbounds for i in eachindex(phv); phv[i] >>= 1; end
     kv = @view killers[:, :, tid]
     fill!(kv, Move(0))
 
