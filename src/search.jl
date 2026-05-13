@@ -413,6 +413,9 @@ function quiescence(b::Board, α::Int, β::Int, ply::Int, key_history::Vector{UI
     for m in cap_view
         search_stopped[] && break
 
+        # Skip captures that lose material — they can't raise alpha from stand_pat.
+        see(b, m) < 0 && continue
+
         update!(nnue_accs[tid], b, m, nnue_net)
         u  = domove!(b, m)
         if was_illegal(b)
