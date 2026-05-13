@@ -130,7 +130,7 @@ end
 # NNUE (one accumulator per thread)
 # ============================================================
 
-const nnue_net  = load_nnue(joinpath(@__DIR__, "nnue_hl_1024.bin"))
+const nnue_net  = load_nnue(joinpath(@__DIR__, "nnue.bin"))
 const nnue_accs = [Accumulator() for _ in 1:_N_THREADS]
 
 # ============================================================

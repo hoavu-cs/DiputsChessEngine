@@ -1,14 +1,15 @@
-const NNUE_INPUT = 768
-const NNUE_HL    = 1024
-const NNUE_SCALE = 400
-const NNUE_QA    = 255
-const NNUE_QB    = 64
+const NNUE_INPUT   = 768
+const NNUE_HL      = 1024
+const NNUE_BUCKETS = 8
+const NNUE_SCALE   = 400
+const NNUE_QA      = 255
+const NNUE_QB      = 64
 
 struct NNUENet
-    fw::Matrix{Int16}   # NNUE_HL * NNUE_INPUT  (column j = feature j weight vector)
+    fw::Matrix{Int16}   # NNUE_HL × NNUE_INPUT   (column j = feature j weight vector)
     fb::Vector{Int16}   # NNUE_HL
-    ow::Vector{Int16}   # 2 * NNUE_HL
-    ob::Int16
+    ow::Matrix{Int16}   # 2*NNUE_HL × NNUE_BUCKETS  (column k = bucket k-1 weights, transposed)
+    ob::Vector{Int16}   # NNUE_BUCKETS
 end
 
 function load_nnue(path::String)::NNUENet
@@ -17,11 +18,19 @@ function load_nnue(path::String)::NNUENet
         read!(io, fw)
         fb = Vector{Int16}(undef, NNUE_HL)
         read!(io, fb)
-        ow = Vector{Int16}(undef, 2 * NNUE_HL)
+        ow = Matrix{Int16}(undef, 2 * NNUE_HL, NNUE_BUCKETS)
         read!(io, ow)
-        ob = read(io, Int16)
+        ob = Vector{Int16}(undef, NNUE_BUCKETS)
+        read!(io, ob)
         NNUENet(fw, fb, ow, ob)
     end
+end
+
+# MaterialCount<NNUE_BUCKETS>: (non-king pieces) / ceil(32/NNUE_BUCKETS), 1-indexed
+function _material_bucket(b::Board)::Int
+    n = count_ones(b.bb[1] | b.bb[2] | b.bb[3] | b.bb[4] | b.bb[5] |
+                   b.bb[7] | b.bb[8] | b.bb[9] | b.bb[10] | b.bb[11])
+    n ÷ cld(32, NNUE_BUCKETS) + 1
 end
 
 # Accumulator: two NNUE_HL vectors — one per king orientation (white / black perspective)
@@ -267,15 +276,16 @@ end
 # Evaluate from a pre-built accumulator. Returns centipawns from side-to-move perspective.
 function nnue_eval(acc::Accumulator, b::Board, net::NNUENet)::Int
     us, them = sidetomove(b) == WHITE ? (acc.w, acc.b) : (acc.b, acc.w)
+    bkt = _material_bucket(b)
     ow  = net.ow
     out = Int64(0)
     @inbounds @simd for i in 1:NNUE_HL
         uv = clamp(us[i],   Int32(0), Int32(NNUE_QA))
         tv = clamp(them[i], Int32(0), Int32(NNUE_QA))
-        out += Int64(uv) * uv * Int64(ow[i])
-        out += Int64(tv) * tv * Int64(ow[NNUE_HL + i])
+        out += Int64(uv) * uv * Int64(ow[i,           bkt])
+        out += Int64(tv) * tv * Int64(ow[NNUE_HL + i, bkt])
     end
-    out = div(out, Int64(NNUE_QA)) + Int64(net.ob)
+    out = div(out, Int64(NNUE_QA)) + Int64(net.ob[bkt])
     return Int(div(out * Int64(NNUE_SCALE), Int64(NNUE_QA * NNUE_QB)))
 end
 
