@@ -945,6 +945,112 @@ function parse_move(b::Board, s::AbstractString)::UInt64
 end
 
 # ============================================================
+# Static Exchange Evaluation
+# ============================================================
+const _SEE_VAL = (100, 320, 330, 500, 900, 20000, 0)  # [P, N, B, R, Q, K, none]
+
+# All pieces (both colors) that attack square `s` given occupancy `occ`.
+# Sliding attacks are recomputed with magic bitboards; non-sliders use precomputed tables.
+@inline function attacks_to(pos::Board, s::Int, occ::UInt64)::UInt64
+    bb  = pos.bb                                   # 12 bitboards, [BB_WP..BB_BK]
+    fr, rr = file(s), rank(s)
+    atk = UInt64(0)
+    # White pawns attack s from (fr±1, rr-1)
+    if rr > 0
+        if fr > 0; atk |= bit(sq(fr-1, rr-1)) & bb[BB_WP]; end
+        if fr < 7; atk |= bit(sq(fr+1, rr-1)) & bb[BB_WP]; end
+    end
+    # Black pawns attack s from (fr±1, rr+1)
+    if rr < 7
+        if fr > 0; atk |= bit(sq(fr-1, rr+1)) & bb[BB_BP]; end
+        if fr < 7; atk |= bit(sq(fr+1, rr+1)) & bb[BB_BP]; end
+    end
+    s1 = s + 1                                    # 1-indexed table lookups
+    atk |= KNIGHT_ATTACKS[s1] & (bb[BB_WN] | bb[BB_BN])
+    atk |= KING_ATTACKS[s1]   & (bb[BB_WK] | bb[BB_BK])
+    atk |= bishop_attacks(s, occ) & (bb[BB_WB] | bb[BB_BB] | bb[BB_WQ] | bb[BB_BQ])
+    atk |= rook_attacks(s, occ)   & (bb[BB_WR] | bb[BB_BR] | bb[BB_WQ] | bb[BB_BQ])
+    return atk
+end
+
+
+# Recursive SEE: Returns the net material gain (centipawns) for `side` if it captures
+function see_rec(pos::Board, occ::UInt64, to::Int, side::Int, captured_val::Int,
+                 attackers::UInt64, bishops_queens::UInt64, rooks_queens::UInt64)::Int
+
+    attackers &= occ                             # filter to pieces still on board
+    side_attackers = attackers & (side == 0 ? pos.white_bb : pos.black_bb)
+    side_attackers == 0 && return 0              # no recapture available
+
+    bb = pos.bb
+    local bb_pt, pt
+    if (bb_pt = side_attackers & (side == 0 ? bb[BB_WP] : bb[BB_BP])) ≠ 0
+        pt = PAWN
+    elseif (bb_pt = side_attackers & (side == 0 ? bb[BB_WN] : bb[BB_BN])) ≠ 0
+        pt = KNIGHT
+    elseif (bb_pt = side_attackers & (side == 0 ? bb[BB_WB] : bb[BB_BB])) ≠ 0
+        pt = BISHOP
+    elseif (bb_pt = side_attackers & (side == 0 ? bb[BB_WR] : bb[BB_BR])) ≠ 0
+        pt = ROOK
+    elseif (bb_pt = side_attackers & (side == 0 ? bb[BB_WQ] : bb[BB_BQ])) ≠ 0
+        pt = QUEEN
+    else
+        bb_pt = side_attackers & (side == 0 ? bb[BB_WK] : bb[BB_BK])
+        bb_pt == 0 && return 0                       # no king (shouldn't happen)
+        # king can only capture if the opponent has no recapture
+        return (attackers & ~(side == 0 ? pos.white_bb : pos.black_bb) ≠ 0
+                ? 0 : captured_val)
+    end
+
+    lva_val = _SEE_VAL[pt]
+    new_occ = occ ⊻ (bb_pt & -bb_pt)                # remove the capturing piece (x-ray)
+    new_attackers = attackers
+    if pt == PAWN || pt == BISHOP || pt == QUEEN
+        new_attackers |= bishop_attacks(to, new_occ) & bishops_queens
+    end
+    if pt == ROOK || pt == QUEEN
+        new_attackers |= rook_attacks(to, new_occ) & rooks_queens
+    end
+
+    # capture only if net positive; opponent then recaptures our lva_val
+    return max(0, captured_val - see_rec(pos, new_occ, to, side ⊻ 1, lva_val,
+                                          new_attackers, bishops_queens, rooks_queens))
+end
+
+# Public SEE entry point.
+# Returns the net material gain (centipawns, from the moving side's perspective)
+# for making move `m` on position `pos`, assuming optimal play on both sides.
+# The first capture is committed; `see_rec` evaluates the subsequent exchange.
+@inline function see(pos::Board, m::UInt64)::Int
+    fr   = Int(m & 0x3f)         # 0-indexed source square
+    to_s = Int((m >> 6) & 0x3f)  # 0-indexed destination square
+    flag = Int((m >> 16) & 0xf)
+    promo = Int((m >> 12) & 0xf)
+
+    cap_idx    = pos.pieces[to_s + 1]
+    target_val = cap_idx == 0 ? 0 : _SEE_VAL[((cap_idx - 1) % 6) + 1]
+    flag == 4 && (target_val = _SEE_VAL[PAWN])   # en passant: pawn not on to_s
+
+    our_idx = pos.pieces[fr + 1]
+    our_val = _SEE_VAL[((our_idx - 1) % 6) + 1]
+    if promo ≠ 0
+        promo_type  = promo == 1 ? QUEEN : promo == 2 ? ROOK : promo == 3 ? BISHOP : KNIGHT
+        target_val += _SEE_VAL[promo_type] - _SEE_VAL[PAWN]   # extra gain from promotion
+        our_val     = _SEE_VAL[promo_type]                     # opponent recaptures promoted piece
+    end
+
+    # Occupancy after the first capture: moving piece leaves `fr`
+    occ = pos.occupied ⊻ bit(fr)
+    flag == 4 && (occ ⊻= bit(pos.stm == WHITE ? to_s - 8 : to_s + 8))  # remove ep pawn
+
+    bq = pos.bb[BB_WB] | pos.bb[BB_BB] | pos.bb[BB_WQ] | pos.bb[BB_BQ]
+    rq = pos.bb[BB_WR] | pos.bb[BB_BR] | pos.bb[BB_WQ] | pos.bb[BB_BQ]
+
+    return target_val - see_rec(pos, occ, to_s, pos.stm ⊻ 1, our_val,
+                                attacks_to(pos, to_s, occ), bq, rq)
+end
+
+# ============================================================
 # Initialization (runs at include time)
 # ============================================================
 

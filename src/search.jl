@@ -601,6 +601,12 @@ function negamax(
         #     @inbounds Int(cont_hist[to(m).val, cur_pt, prev_to, prev_pt, stm, tid]) < -(Γ ÷ 4) * depth && continue
         # end
 
+        # SEE pruning: skip moves whose exchange loses too much material.
+        if depth ≤ 8 && !in_check && !is_pv_node && !is_singular
+            see_threshold = is_capture ? -30 * depth : -80 * depth * depth
+            see(b, m) < see_threshold && continue
+        end
+
         # Singular extension: if the TT move is clearly better than all others,
         # extend it by 1. Prevents recursive singular searches via excluded_move guard.
         ext = 0
