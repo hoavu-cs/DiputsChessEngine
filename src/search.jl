@@ -146,6 +146,7 @@ const nnue_accs = [Accumulator() for _ in 1:_N_THREADS]
 const history      = zeros(Int16, 2, 64, 64, _N_THREADS)
 const cont_hist    = zeros(Int16, 64, 7, 64, 7, 2, _N_THREADS)
 const cont_hist2   = zeros(Int16, 64, 7, 64, 7, 2, _N_THREADS)
+const cap_hist     = zeros(Int16, 12, 64, 6, _N_THREADS)   # [moving_piece 1..12, to_sq 1..64, captured_pt 1..6, tid]
 const eval_stack   = zeros(Int,   257, _N_THREADS)   # [ply, tid]
 const killers      = fill(Move(0), 2, 256, _N_THREADS)
 const move_stack   = fill((0, 0), 256, _N_THREADS)
@@ -179,6 +180,7 @@ function clear_history()
     fill!(history, 0)
     fill!(cont_hist, Int16(0))
     fill!(cont_hist2, Int16(0))
+    fill!(cap_hist, Int16(0))
     fill!(pawn_hist, Int16(0))
     fill!(killers, Move(0))
     fill!(move_stack, (0, 0))
@@ -186,6 +188,11 @@ function clear_history()
     fill!(_MINOR_TABLE, Int16(0))
     fill!(_MAJORW_TABLE, Int16(0))
     fill!(_MAJORB_TABLE, Int16(0))
+end
+
+@inline function update_cap_hist!(pc::Int, to_sq::Int, cap_pt::Int, bonus::Int, tid::Int)
+    old = Int(cap_hist[pc, to_sq, cap_pt, tid])
+    cap_hist[pc, to_sq, cap_pt, tid] = Int16(clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ))
 end
 
 @inline function update_history!(color::Int, from_sq::Int, to_sq::Int, bonus::Int, tid::Int)
@@ -294,10 +301,12 @@ end
 # Move Ordering
 # ============================================================
 
-const _SCORE_HASH    = 1_000_000
-const _SCORE_PROMO   =   900_000
-const _SCORE_CAPTURE =   100_000
-const _SCORE_KILLER  =    90_000
+const _SCORE_HASH        = 1_000_000
+const _SCORE_PROMO       =   900_000
+const _SCORE_CAPTURE     =   100_000   # good captures (SEE ≥ 0): above killers
+const _SCORE_KILLER      =    90_000
+                                        # quiets: history score ∈ [-16384, 16384]
+const _SCORE_BAD_CAPTURE =  -100_000   # bad captures (SEE < 0): below all quiets
 
 @inline function score_move(
     b::Board,
@@ -316,10 +325,11 @@ const _SCORE_KILLER  =    90_000
     end
 
     if moveiscapture(b, m)
-        vt       = ptype(pieceon(b, to(m))).val
-        victim   = clamp(vt, 1, 6)
-        attacker = ptype(pieceon(b, from(m))).val
-        return _SCORE_CAPTURE + _QS_PIECE_VAL[victim] * 10 - attacker
+        see_val = see(b, m)
+        pc      = Int(b.pieces[from(m).val])            # moving piece 1..12
+        cap_pt  = max(1, ptype(pieceon(b, to(m))).val)   # 0 on en passant → treat as pawn
+        ch      = @inbounds Int(cap_hist[pc, to(m).val, cap_pt, tid]) * _SEE_VAL[QUEEN] ÷ Γ
+        return see_val ≥ 0 ? _SCORE_CAPTURE + see_val + ch : _SCORE_BAD_CAPTURE + see_val + ch
     end
 
     m == k1 && return _SCORE_KILLER
@@ -582,8 +592,9 @@ function negamax(
     best_score      = -∞
     best_move       = Move(0)
     flag            = TT_UPPER
-    searched_quiets = Move[]
-    legal_moves     = 0
+    searched_quiets   = Move[]
+    searched_captures = Move[]
+    legal_moves       = 0
     α_0 = α
 
     for (i, m) in enumerate(ml)
@@ -604,10 +615,11 @@ function negamax(
         #     @inbounds Int(cont_hist[to(m).val, cur_pt, prev_to, prev_pt, stm, tid]) < -(Γ ÷ 4) * depth && continue
         # end
 
-        # SEE pruning: skip moves whose exchange loses too much material.
+        # SEE pruning + cache for LMR tweak below.
+        see_val = (!in_check && !is_pv_node && !is_singular) ? see(b, m) : 0
         if depth ≤ 8 && !in_check && !is_pv_node && !is_singular
             see_threshold = is_capture ? -30 * depth : -80 * depth * depth
-            see(b, m) < see_threshold && continue
+            see_val < see_threshold && continue
         end
 
         # Singular extension: if the TT move is clearly better than all others,
@@ -631,17 +643,6 @@ function negamax(
         end
         new_depth = depth - 1 + ext
 
-        # Capture futility pruning
-        # if is_capture && !in_check && !is_pv_node && !is_singular 
-        #     R_est   = lmr ? LMR_TABLE[depth, legal_moves] : 0
-        #     lmr_d   = new_depth - R_est
-        #     if lmr_d ≤ 2
-        #         vt = ptype(pieceon(b, to(m))).val
-        #         cap_val = _QS_PIECE_VAL[clamp(vt, 1, 6)]
-        #         eval + 300 * lmr_d  + cap_val ≤ α && continue
-        #     end
-        # end
-
         update!(nnue_accs[tid], b, m, nnue_net)
         u  = domove!(b, m)
         if was_illegal(b)
@@ -660,9 +661,9 @@ function negamax(
 
         R  = lmr ? lmr_reduction(NT, depth, legal_moves, ischeck(b), is_capture) : 0
 
-        # PV: first legal → PVNode; others → CutNode
-        # Cut: first legal → AllNode; others → CutNode
-        # All: all children → CutNode
+        # PV: first legal ⟹ PVNode; others ⟹ CutNode
+        # Cut: first legal ⟹ AllNode; others ⟹ CutNode
+        # All: all children ⟹ CutNode
         child_pv  = _NO_PV
         child_idx = min(ply + 1, 256)
         if legal_moves == 1 && is_pv_node
@@ -703,13 +704,13 @@ function negamax(
 
                 if α ≥ β
                     flag = TT_LOWER
+                    bonus = depth * depth
 
                     if is_quiet
                         if ply ≤ 256
                             killers[2, ply, tid] = killers[1, ply, tid]
                             killers[1, ply, tid] = m
                         end
-                        bonus = depth * depth
                         update_history!(stm, from(m).val, to(m).val, bonus, tid)
                         update_cont_hist!(stm, ply, cur_pt, to(m).val, bonus, tid)
                         update_pawn_hist!(b, cur_pt, to(m).val, bonus, tid)
@@ -719,13 +720,23 @@ function negamax(
                             update_cont_hist!(stm, ply, qm_pt, to(qm).val, -bonus, tid)
                             update_pawn_hist!(b, qm_pt, to(qm).val, -bonus, tid)
                         end
+                    elseif is_capture && depth > 2
+                        pc     = Int(b.pieces[from(m).val])
+                        cap_pt = max(1, ptype(pieceon(b, to(m))).val)
+                        update_cap_hist!(pc, to(m).val, cap_pt, bonus, tid)
+                        for cm in searched_captures
+                            cm_pc     = Int(b.pieces[from(cm).val])
+                            cm_cap_pt = max(1, ptype(pieceon(b, to(cm))).val)
+                            update_cap_hist!(cm_pc, to(cm).val, cm_cap_pt, -bonus, tid)
+                        end
                     end
                     break
                 end
             end
         end
 
-        is_quiet && push!(searched_quiets, m)
+        is_quiet   && push!(searched_quiets, m)
+        is_capture && push!(searched_captures, m)
     end
 
     if legal_moves == 0 && !search_stopped[]
