@@ -1,15 +1,8 @@
 # Diputs Chess Engine
 
-A somewhat ~~unoriginal~~ uninovative non-competitive UCI chess engine for trolling (same old search techniques and heuristics). 
+A somewhat ~~unoriginal~~ uninovative non-competitive UCI chess engine for trolling (same old search techniques and heuristics). I have ~ ~~1 week~~ 2 weeks to work on this engine to brush up on Julia and to correct some of the bugs in my previous C++ engine. Julia, like Python, is highly portable and easy on the eyes (this is probably the only thing interesting about this engine). 
 
-I have ~~1 week~~ 2 weeks to work on this engine to brush up on Julia and to correct some of the bugs in my previous C++ engine. Julia, like Python, is highly portable and easy on the eyes (this is probably the only thing interesting about this engine). 
-
-**Strength**. This engine plays chess with an Elo and tries to win at the game of chess.
-
-2:00+1, UHO_Lichess_4852_v1.epd, 1 thread, 256Mb hash each.
-
-- commit a1e499a against Stash 37 `diputs_1t.sh  vs stash-37.0-linux-64: 34 - 11 - 15 [0.692]`
-- v1.0.6 against Weiawaga 6. `diputs_1t.sh vs Weiawaga-baseline: 22 - 17 - 41 [0.531]`
+This engine plays chess with an Elo and tries to win at the game of chess.
 
 The current repo's code gives you the strongest version; releases are stable checkpoints.
 
@@ -20,7 +13,6 @@ Point your UCI-compatible GUI (Arena, Cutechess, En Croissant, Nibbler etc.) to 
 ```bash
 diputs_1t.sh   # 1-thread version
 diputs_2t.sh   # 2-thread version
-diputs_4t.sh   # 4-thread version
 ```
 
 Make them executable first: `chmod +x diputs_1t.sh`. Then point the GUI program to it or run in the terminal.
