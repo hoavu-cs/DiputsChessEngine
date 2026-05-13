@@ -146,7 +146,7 @@ const nnue_accs = [Accumulator() for _ in 1:_N_THREADS]
 const history      = zeros(Int16, 2, 64, 64, _N_THREADS)
 const cont_hist    = zeros(Int16, 64, 7, 64, 7, 2, _N_THREADS)
 const cont_hist2   = zeros(Int16, 64, 7, 64, 7, 2, _N_THREADS)
-const eval_stack   = zeros(Int,   257, _N_THREADS)   # [ply+1, tid]; [1, tid] = root eval
+const eval_stack   = zeros(Int,   257, _N_THREADS)   # [ply, tid]
 const killers      = fill(Move(0), 2, 256, _N_THREADS)
 const move_stack   = fill((0, 0), 256, _N_THREADS)
 const _MOVE_SCORES = zeros(Int,   256, 256, _N_THREADS)
@@ -155,7 +155,7 @@ const _PAWN_HIST_SIZE = 1 << 14
 const _PAWN_HIST_MASK = _PAWN_HIST_SIZE - 1
 const pawn_hist       = zeros(Int16, 6, 64, _PAWN_HIST_SIZE, _N_THREADS)  # [pt, to, ph, tid]
 
-@inline pawn_key(b::Board)::UInt64 = b.bb[BB_WP] ⊻ b.bb[BB_BB]
+@inline pawn_key(b::Board)::UInt64 = b.bb[BB_WP] ⊻ b.bb[BB_BP]
 
 @inline function pawn_hist_idx(b::Board)::Int
     pk = pawn_key(b)
@@ -201,8 +201,8 @@ end
     bonus::Int,
     tid::Int,
 )
-    prev_pt, prev_to   = ply > 1 ? move_stack[ply, tid]     : (0, 0)
-    prev2_pt, prev2_to = ply > 2 ? move_stack[ply - 1, tid] : (0, 0)
+    prev_pt, prev_to   = ply ≥ 2 ? move_stack[ply - 1, tid] : (0, 0)
+    prev2_pt, prev2_to = ply ≥ 3 ? move_stack[ply - 2, tid] : (0, 0)
     prev_pt == 0 && return
     @inbounds begin
         old = Int(cont_hist[cur_to, cur_pt, prev_to, prev_pt, stm, tid])
@@ -327,8 +327,8 @@ const _SCORE_KILLER  =    90_000
 
     color              = sidetomove(b) == WHITE ? 1 : 2
     cur_pt             = ptype(pieceon(b, from(m))).val
-    prev_pt,  prev_to  = ply > 1 ? move_stack[ply, tid]     : (0, 0)
-    prev2_pt, prev2_to = ply > 2 ? move_stack[ply - 1, tid] : (0, 0)
+    prev_pt,  prev_to  = ply ≥ 2 ? move_stack[ply - 1, tid] : (0, 0)
+    prev2_pt, prev2_to = ply ≥ 3 ? move_stack[ply - 2, tid] : (0, 0)
     ch  = prev_pt  > 0 ? @inbounds(Int(cont_hist[to(m).val,  cur_pt, prev_to,  prev_pt,  color, tid])) : 0
     ch2 = prev2_pt > 0 ? @inbounds(Int(cont_hist2[to(m).val, cur_pt, prev2_to, prev2_pt, color, tid])) : 0
     ph  = pawn_hist_score(b, cur_pt, to(m).val, tid)
@@ -469,12 +469,14 @@ function negamax(
         return 0
     end
 
-    cnt = 0
-    for k in key_history
-        k == b.key && (cnt += 1)
-        cnt ≥ 2 && return 0
+    if ply > 1
+        cnt = 0
+        for k in key_history
+            k == b.key && (cnt += 1)
+            cnt ≥ 2 && return 0
+        end
+        isdraw(b) && return 0
     end
-    isdraw(b) && return 0
 
     buf_idx  = min(ply, _MAX_BUF_PLY - 1) + 1
     ml_buf   = is_singular ? _SING_BUFS[tid][buf_idx] : _MOVE_BUFS[tid][buf_idx]
@@ -494,7 +496,7 @@ function negamax(
     hit, tt_score, tt_flag, tt_is_pv, tt_best, tt_stored_depth = probe_tt(b.key, depth, ply)
     is_pv_node  = (NT === PVNode)
     is_cut_node = (NT === CutNode)
-    if hit && !is_singular
+    if hit && !is_singular && ply > 1
         if tt_flag == TT_EXACT
             return tt_score
         elseif tt_flag == TT_LOWER
@@ -506,7 +508,7 @@ function negamax(
     end
 
     # Internal iterative reduction (skip at AllNodes)
-    depth -= (tt_best == Move(0) && depth ≥ 3 && (is_pv_node || is_cut_node)) ? 1 : 0
+    depth -= (tt_best == Move(0) && depth ≥ 3 && (is_pv_node || is_cut_node)) && (ply > 1) ? 1 : 0
 
     # Raw NNUE eval
     raw_eval = nnue_eval(nnue_accs[tid], b, nnue_net)
@@ -525,8 +527,8 @@ function negamax(
     end
     
     eval = clamp(eval, -(MATE_SCORE - TT_MAX_PLY), MATE_SCORE - TT_MAX_PLY)
-    eval_stack[ply + 1, tid] = eval
-    improving = !in_check && ply ≥ 3 && eval > eval_stack[ply - 1, tid]
+    eval_stack[ply, tid] = eval
+    improving = !in_check && ply ≥ 3 && eval > eval_stack[ply - 2, tid]
 
     # Reverse futility pruning
     if depth ≤ 7 && !in_check && !is_pv_node && !is_singular
@@ -556,7 +558,7 @@ function negamax(
         if has_piece
             R = min(4 + div(depth, 3) + min(div(eval - β, 200), 3), depth - 1)
             u = donullmove!(b)
-            move_stack[ply + 1, tid] = (0, 0)
+            move_stack[ply, tid] = (0, 0)
             sc = -negamax(CutNode, b, depth - 1 - R, -β, -β + 1, ply + 1, key_history, tid)
             undomove!(b, u)
             sc ≥ β && return sc
@@ -564,14 +566,14 @@ function negamax(
     end
 
     # Mini-probcut: TT lower bound well above beta ⟹ prune
-    if (tt_flag == TT_LOWER || tt_flag == TT_EXACT) && tt_stored_depth ≥ depth - 3 &&
+    if ply > 1 && (tt_flag == TT_LOWER || tt_flag == TT_EXACT) && tt_stored_depth ≥ depth - 3 &&
        tt_score ≥ β + 500 && abs(β) < MATE_SCORE - TT_MAX_PLY &&
        abs(tt_score) < MATE_SCORE - TT_MAX_PLY && !is_singular
         return β + 500
     end
 
-    k1  = ply ≤ 256 ? killers[1, ply, tid] : Move(0)
-    k2  = ply ≤ 256 ? killers[2, ply, tid] : Move(0)
+    k1  = (ply > 1 && ply ≤ 256) ? killers[1, ply, tid] : Move(0)
+    k2  = (ply > 1 && ply ≤ 256) ? killers[2, ply, tid] : Move(0)
     sort_moves!(b, ml, ply, tt_best, k1, k2, tid)
 
     best_score      = -∞
@@ -602,7 +604,7 @@ function negamax(
         # Singular extension: if the TT move is clearly better than all others,
         # extend it by 1. Prevents recursive singular searches via excluded_move guard.
         ext = 0
-        if m == tt_best && !is_singular && depth ≥ 6 && tt_flag ≠ TT_UPPER && ply ≤ 2 * _ROOT_DEPTH[tid] &&
+        if m == tt_best && !is_singular && ply > 1 && depth ≥ 6 && tt_flag ≠ TT_UPPER && ply ≤ 2 * _ROOT_DEPTH[tid] &&
             abs(tt_score) < MATE_SCORE - TT_MAX_PLY && tt_stored_depth ≥ depth - 3
 
             singular_β  = tt_score - 6 * depth 
@@ -620,6 +622,17 @@ function negamax(
         end
         new_depth = depth - 1 + ext
 
+        # Capture futility pruning
+        # if is_capture && !in_check && !is_pv_node && !is_singular 
+        #     R_est   = lmr ? LMR_TABLE[depth, legal_moves] : 0
+        #     lmr_d   = new_depth - R_est
+        #     if lmr_d ≤ 2
+        #         vt = ptype(pieceon(b, to(m))).val
+        #         cap_val = _QS_PIECE_VAL[clamp(vt, 1, 6)]
+        #         eval + 300 * lmr_d  + cap_val ≤ α && continue
+        #     end
+        # end
+
         update!(nnue_accs[tid], b, m, nnue_net)
         u  = domove!(b, m)
         if was_illegal(b)
@@ -629,7 +642,12 @@ function negamax(
         end
         legal_moves += 1
         push!(key_history, b.key)
-        move_stack[ply + 1, tid] = (cur_pt, to(m).val)
+        move_stack[ply, tid] = (cur_pt, to(m).val)
+
+        if ply + 1 ≤ 256
+            killers[1, ply + 1, tid] = Move(0)
+            killers[2, ply + 1, tid] = Move(0)
+        end
 
         R  = lmr ? lmr_reduction(NT, depth, legal_moves, ischeck(b), is_capture) : 0
 
@@ -727,129 +745,61 @@ end
 # ============================================================
 
 function search(b::Board, max_depth::Int, tid::Int; depth_offset::Int=0)::UInt64
-    kv = @view killers[:, :, tid]
-    fill!(kv, Move(0))
-
+    fill!(@view(killers[:, :, tid]), Move(0))
     refresh!(nnue_accs[tid], b, nnue_net)
-    eval_stack[1, tid] = nnue_eval(nnue_accs[tid], b, nnue_net)
 
-    start_ns    = time_ns()
-    best_move   = Move(0)
-    root_buf    = _MOVE_BUFS[tid][1]
-    generate_moves!(root_buf, b)
-    ml          = view(root_buf.moves, 1:root_buf.count)
+    start_ns         = time_ns()
+    best_move        = Move(0)
     _NODE_COUNT[tid] = 0
     _SELDEPTH[tid]   = 0
-    _ROOT_DEPTH[tid]  = 0
-    key_history = copy(game_key_history)
-    isempty(ml) && return best_move
+    _ROOT_DEPTH[tid] = 0
+    key_history      = copy(game_key_history)
 
     prev_score = 0
-    depth_pv   = UInt64[]
 
     for depth in (1 + depth_offset):max_depth
         _ROOT_DEPTH[tid] = depth
         search_stopped[] && break
 
-        prev_best  = best_move
+        prev_best    = best_move
         had_asp_fail = false
-        window     = 25
-        asp_α      = depth ≥ 6 ? prev_score - window : -∞
-        asp_β      = depth ≥ 6 ? prev_score + window :  ∞
-        depth_best = Move(0)
-        best_score = prev_score
-
-        k1 = killers[1, 1, tid]
-        k2 = killers[2, 1, tid]
-        sort!(ml, by = m -> score_move(b, m, best_move, k1, k2, 1; tid=tid), rev = true)
+        window       = 25
+        asp_α        = depth ≥ 6 ? prev_score - window : -∞
+        asp_β        = depth ≥ 6 ? prev_score + window :  ∞
+        best_score   = prev_score
+        iter_pv      = _ITER_PV[tid]
 
         while true
             search_stopped[] && break
-            α         = asp_α
-            iter_best = Move(0)
-
-            root_legal = 0
-            for (i, m) in enumerate(ml)
-                search_stopped[] && break
-
-                lmr        = root_legal > 1 && depth ≥ 3 && promotion(m) == PieceType(0)
-                is_capture = moveiscapture(b, m)
-
-                cur_pt = ptype(pieceon(b, from(m))).val
-                update!(nnue_accs[tid], b, m, nnue_net)
-                u  = domove!(b, m)
-                if was_illegal(b)
-                    undomove!(b, u)
-                    undo_update!(nnue_accs[tid], b, m, nnue_net)
-                    continue
-                end
-                root_legal += 1
-                push!(key_history, b.key)
-                move_stack[1, tid] = (cur_pt, to(m).val)
-
-                R  = lmr ? lmr_reduction(PVNode, depth, root_legal, ischeck(b), is_capture) : 0
-
-                cand_pv = _CAND_PV[tid]; empty!(cand_pv)
-
-                if root_legal == 1
-                    sc = -negamax(PVNode, b, depth - 1, -asp_β, -α, 1, key_history, tid, cand_pv)
-                else
-                    sc = -negamax(CutNode, b, depth - 1 - R, -α - 1, -α, 1, key_history, tid)
-                    if sc > α
-                        if R > 0
-                            sc = -negamax(CutNode, b, depth - 1, -α - 1, -α, 1, key_history, tid)
-                        end
-                        if sc > α && sc < asp_β
-                            sc = -negamax(PVNode, b, depth - 1, -asp_β, -α, 1, key_history, tid, cand_pv)
-                        end
-                    end
-                end
-
-                pop!(key_history)
-                undomove!(b, u)
-                undo_update!(nnue_accs[tid], b, m, nnue_net)
-
-                if sc > α
-                    α         = sc
-                    iter_best = m
-                    copy!(_ITER_PV[tid], cand_pv)
-                    α ≥ asp_β && break
-                end
-            end
-
+            empty!(iter_pv)
+            sc = negamax(PVNode, b, depth, asp_α, asp_β, 1, key_history, tid, iter_pv)
             search_stopped[] && break
 
-            if α ≤ asp_α
+            if sc ≤ asp_α
                 had_asp_fail = true
                 window *= 2
                 asp_α = window ≥ 200 ? -∞ : max(asp_α - window, -∞)
-            elseif α ≥ asp_β
+            elseif sc ≥ asp_β
                 had_asp_fail = true
-                if iter_best ≠ Move(0)
-                    depth_best = iter_best
-                    depth_pv   = UInt64[]
-                    best_score = α
-                end
+                !isempty(iter_pv) && (best_move = iter_pv[1]; best_score = sc)
                 window *= 2
                 asp_β = window ≥ 200 ?  ∞ : min(asp_β + window, ∞)
             else
-                depth_best = iter_best
-                depth_pv   = _ITER_PV[tid]
-                best_score = α
+                best_score = sc
+                !isempty(iter_pv) && (best_move = iter_pv[1])
                 break
             end
         end
 
-        if !search_stopped[] && depth_best ≠ Move(0)
-            best_move  = depth_best
+        if !search_stopped[] && best_move ≠ Move(0)
             prev_score = best_score
             if tid == 1
-                store_tt(b.key, depth, best_score, TT_EXACT, true, depth_best, 0)
+                store_tt(b.key, depth, best_score, TT_EXACT, true, best_move, 1)
                 elapsed_ms = div(time_ns() - start_ns, 1_000_000)
                 node_count = sum(_NODE_COUNT)
                 seldepth   = maximum(_SELDEPTH)
-                nps    = elapsed_ms > 0 ? div(node_count * 1000, elapsed_ms) : 0
-                pv_str = join([tostring(depth_best); tostring.(depth_pv)], " ")
+                nps        = elapsed_ms > 0 ? div(node_count * 1000, elapsed_ms) : 0
+                pv_str     = join(tostring.(iter_pv), " ")
                 println("info depth $depth seldepth $seldepth score cp $best_score time $elapsed_ms nodes $node_count nps $nps pv $pv_str")
                 flush(stdout)
             end
