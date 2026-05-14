@@ -117,15 +117,6 @@ const _PV_BUFS = [[UInt64[] for _ in 1:256] for _ in 1:_N_THREADS]
 const _CAND_PV = [UInt64[] for _ in 1:_N_THREADS]
 const _ITER_PV = [UInt64[] for _ in 1:_N_THREADS]
 
-@inline function lmr_reduction(::Type{NT}, depth::Int, i::Int, in_check::Bool, is_capture::Bool)::Int where NT <: NodeType
-    r = LMR_TABLE[depth, min(i, LMR_MOVES_MAX)]
-    in_check   && (r = max(1, r - 1))
-    is_capture && (r = max(1, r - 1))
-    NT === AllNode  && (r += 1)
-    NT === CutNode  && (r += 1)
-    return min(r, depth - 1)
-end
-
 # ============================================================
 # NNUE (one accumulator per thread)
 # ============================================================
@@ -608,11 +599,6 @@ function negamax(
             length(searched_quiets) ≥ (5 + depth * depth) ÷ (2 - Int(improving)) && continue
         end
 
-        # Continuation history pruning
-        # if !is_pv_node && !in_check && is_quiet && prev_pt > 0
-        #     @inbounds Int(cont_hist[to(m).val, cur_pt, prev_to, prev_pt, stm, tid]) < -(Γ ÷ 4) * depth && continue
-        # end
-
         # SEE pruning + cache for LMR tweak below.
         see_val = (!in_check && !is_pv_node && !is_singular) ? see(b, m) : 0
         if depth ≤ 8 && !in_check && !is_pv_node && !is_singular
@@ -657,7 +643,20 @@ function negamax(
             killers[2, ply + 1, tid] = Move(0)
         end
 
-        R  = lmr ? lmr_reduction(NT, depth, legal_moves, ischeck(b), is_capture) : 0
+        if lmr
+            R = LMR_TABLE[depth, min(legal_moves, LMR_MOVES_MAX)]
+            ischeck(b)      && (R = max(1, R - 1))
+            is_capture      && (R = max(1, R - 1))
+            NT === AllNode  && (R += 1)
+            NT === CutNode  && (R += 1)
+            if !is_pv_node && ply ≥ 5 &&
+                eval < eval_stack[ply - 2, tid] < eval_stack[ply - 4, tid]
+                R += 1
+            end
+            R = min(R, depth - 1)
+        else
+            R = 0
+        end
 
         # PV: first legal ⟹ PVNode; others ⟹ CutNode
         # Cut: first legal ⟹ AllNode; others ⟹ CutNode
