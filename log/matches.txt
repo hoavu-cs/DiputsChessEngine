@@ -1,0 +1,12 @@
+========================================================================
+v1.0.9 vs Weiawaga 6 (256Mb, 3+2, UHO_Lichess_4852_v1.epd)
+
+
+Score of diputs.sh vs Weiawaga-baseline: 45 - 28 - 47 [0.571]
+...      diputs.sh playing White: 28 - 12 - 20  [0.633] 60
+...      diputs.sh playing Black: 17 - 16 - 27  [0.508] 60
+...      White vs Black: 44 - 29 - 47  [0.563] 120
+Elo difference: 49.6 +/- 48.9, LOS: 97.7 %, DrawRatio: 39.2 %
+SPRT: llr 0 (0.0%), lbound -inf, ubound inf
+120 of 120 games finished.
+========================================================================

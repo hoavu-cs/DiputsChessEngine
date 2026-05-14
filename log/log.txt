@@ -1,5 +1,47 @@
 === SPRT Results Log ===
 
+4dfa292 — 8-output bucket net
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (25+0.25, NULL, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 12.27 +/- 10.10, nElo: 17.97 +/- 14.78
+LOS: 99.14 %, DrawRatio: 42.18 %, PairsRatio: 1.21
+Games: 2124, Wins: 668, Losses: 593, Draws: 863, Points: 1099.5 (51.77 %)
+Ptnml(0-2): [55, 223, 448, 264, 72], WL/DD Ratio: 1.38
+LLR: 2.27 (103.5%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
+0b6d802 — Remove pirc
+
+2ec30ef — Add capture history
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (25+0.25, NULL, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 7.86 +/- 7.07, nElo: 12.65 +/- 11.38
+LOS: 98.53 %, DrawRatio: 45.28 %, PairsRatio: 1.13
+Games: 3582, Wins: 1017, Losses: 936, Draws: 1629, Points: 1831.5 (51.13 %)
+Ptnml(0-2): [56, 405, 811, 440, 79], WL/DD Ratio: 1.07
+LLR: 2.27 (103.3%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
+4cdfb5b — SEE pruning in qsearch
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (20+0.2, NULL, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 16.12 +/- 12.13, nElo: 24.20 +/- 18.19
+LOS: 99.55 %, DrawRatio: 40.09 %, PairsRatio: 1.33
+Games: 1402, Wins: 403, Losses: 338, Draws: 661, Points: 733.5 (52.32 %)
+Ptnml(0-2): [32, 148, 281, 203, 37], WL/DD Ratio: 0.81
+LLR: 2.21 (100.4%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
+218388d — Add SEE and SEE pruning
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (20+0.2, NULL, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 31.24 +/- 18.10, nElo: 46.11 +/- 26.55
+LOS: 99.97 %, DrawRatio: 40.12 %, PairsRatio: 1.56
+Games: 658, Wins: 219, Losses: 160, Draws: 279, Points: 358.5 (54.48 %)
+Ptnml(0-2): [11, 66, 132, 93, 27], WL/DD Ratio: 1.20
+LLR: 2.21 (100.5%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
 ab079c2 — Simplify. Fix pawn key typo (BB→BP) + rewrite search() as negamax call
 — move_stack: ply+1 → ply, eval_stack: ply+1 → ply, improving: ply-1 → ply-2
 — score_move/update_cont_hist reads shifted: move_stack[ply] → move_stack[ply-1]
