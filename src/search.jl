@@ -138,43 +138,20 @@ const nnue_accs = [Accumulator() for _ in 1:_N_THREADS]
 # ============================================================
 """
     Gravity moving average update:
-    new = old + 0.25 * (bonus - old)
-        = 0.75 * old + 0.25 * bonus
+    new = old + 0.35 * (bonus - old)
+        ≈ 0.648 * old + 0.352 * bonus
     Then clamp to [-Γ, Γ].
 """
 
 const history      = zeros(Int16, 2, 64, 64, _N_THREADS)
 const cont_hist    = zeros(Int16, 64, 7, 64, 7, 2, _N_THREADS)
 const cont_hist2   = zeros(Int16, 64, 7, 64, 7, 2, _N_THREADS)
-const cap_hist     = zeros(Int16, 12, 64, 6, _N_THREADS)   # [moving_piece 1..12, to_sq 1..64, captured_pt 1..6, tid]
-const eval_stack   = zeros(Int,   257, _N_THREADS)   # [ply, tid]
+const cap_hist     = zeros(Int16, 12, 64, 6, _N_THREADS)  
+const eval_stack   = zeros(Int,   257, _N_THREADS)   
 const killers      = fill(Move(0), 2, 256, _N_THREADS)
 const move_stack   = fill((0, 0), 256, _N_THREADS)
 const _MOVE_SCORES = zeros(Int,   256, 256, _N_THREADS)
 
-const _PAWN_HIST_SIZE = 1 << 14
-const _PAWN_HIST_MASK = _PAWN_HIST_SIZE - 1
-const pawn_hist       = zeros(Int16, 6, 64, _PAWN_HIST_SIZE, _N_THREADS)  # [pt, to, ph, tid]
-
-@inline pawn_key(b::Board)::UInt64 = b.bb[BB_WP] ⊻ b.bb[BB_BP]
-
-@inline function pawn_hist_idx(b::Board)::Int
-    pk = pawn_key(b)
-    pk = pk ⊻ (pk >> 33)
-    pk *= 0xFF51AFD7ED558CCD
-    pk = pk ⊻ (pk >> 33)
-    Int(pk & _PAWN_HIST_MASK) + 1
-end
-
-@inline function pawn_hist_score(b::Board, pt::Int, to::Int, tid::Int)::Int
-    Int(pawn_hist[pt, to, pawn_hist_idx(b), tid])
-end
-
-@inline function update_pawn_hist!(b::Board, pt::Int, to::Int, bonus::Int, tid::Int)
-    idx = pawn_hist_idx(b)
-    old = Int(pawn_hist[pt, to, idx, tid])
-    pawn_hist[pt, to, idx, tid] = Int16(clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ))
-end
 
 function clear_history()
     fill!(history, 0)
@@ -231,10 +208,31 @@ const search_soft_deadline = Ref{UInt64}(typemax(UInt64))
 # ============================================================
 
 # Pawn correction history: adjusts eval based on previous search outcomes
+const _PAWN_HIST_SIZE = 1 << 14
+const _PAWN_HIST_MASK = _PAWN_HIST_SIZE - 1
+const pawn_hist       = zeros(Int16, 6, 64, _PAWN_HIST_SIZE, _N_THREADS)  # [pt, to, ph, tid]
+
 const _CORR_SIZE    = 1 << 16
 const _CORR_MASK    = _CORR_SIZE - 1
 const _CORR_TABLE   = zeros(Int16, 2, _CORR_SIZE)  # [white, black]
-# Correction history Δ, δ, Γ now live in Δ, δ, Γ
+
+@inline function pawn_hist_idx(b::Board)::Int
+    pk = b.bb[BB_WP] ⊻ b.bb[BB_BP]
+    pk = pk ⊻ (pk >> 33)
+    pk *= 0xFF51AFD7ED558CCD
+    pk = pk ⊻ (pk >> 33)
+    Int(pk & _PAWN_HIST_MASK) + 1
+end
+
+@inline function pawn_hist_score(b::Board, pt::Int, to::Int, tid::Int)::Int
+    Int(pawn_hist[pt, to, pawn_hist_idx(b), tid])
+end
+
+@inline function update_pawn_hist!(b::Board, pt::Int, to::Int, bonus::Int, tid::Int)
+    idx = pawn_hist_idx(b)
+    old = Int(pawn_hist[pt, to, idx, tid])
+    pawn_hist[pt, to, idx, tid] = Int16(clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ))
+end
 
 @inline function corr_value(key::UInt64, color::Int)::Int
     Int(_CORR_TABLE[color, Int(key & _CORR_MASK) + 1])
