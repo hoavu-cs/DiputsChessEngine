@@ -534,7 +534,7 @@ function negamax(
 
     # Reverse futility pruning
     if depth ≤ 7 && !in_check && !is_pv_node && !is_singular
-        if eval ≥ β + 175 * depth - 75 * improving
+        if eval ≥ β + 175 * depth - 85 * improving
             if tt_best == Move(0) || history[stm, from(tt_best).val, to(tt_best).val, tid] > 7000
                 return (eval + β) ÷ 2
             end
@@ -602,7 +602,7 @@ function negamax(
         # SEE pruning + cache for LMR tweak below.
         see_val = (!in_check && !is_pv_node && !is_singular) ? see(b, m) : 0
         if depth ≤ 8 && !in_check && !is_pv_node && !is_singular
-            see_threshold = is_capture ? -30 * depth : -80 * depth * depth
+            see_threshold = is_capture ? -40 * depth : -80 * depth * depth
             see_val < see_threshold && continue
         end
 
