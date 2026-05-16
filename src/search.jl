@@ -532,9 +532,10 @@ function negamax(
     eval_stack[ply, tid] = eval
     improving = !in_check && ply ≥ 3 && eval > eval_stack[ply - 2, tid]
 
-    # Reverse futility pruning
+    # Reverse futility pruning (multiplier interpolated 120→175 over depths 1–7)
     if depth ≤ 7 && !in_check && !is_pv_node && !is_singular
-        if eval ≥ β + 175 * depth - 85 * improving
+        rfp_mult = (140, 145, 155, 160, 165, 175, 200)[depth]
+        if eval ≥ β + rfp_mult * depth - 85 * improving
             if tt_best == Move(0) || history[stm, from(tt_best).val, to(tt_best).val, tid] > 7000
                 return (eval + β) ÷ 2
             end
