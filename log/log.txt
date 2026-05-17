@@ -1,6 +1,16 @@
 === SPRT Results Log ===
 
 
+b5e2e5d — Add triple extension
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (15+0.15, NULL, 64MB, UHO_Lichess_4852_v1.epd):
+Elo: 23.07 +/- 14.93, nElo: 35.38 +/- 22.83
+LOS: 99.88 %, DrawRatio: 41.12 %, PairsRatio: 1.38
+Games: 890, Wins: 275, Losses: 216, Draws: 399, Points: 474.5 (53.31 %)
+Ptnml(0-2): [12, 98, 183, 123, 29], WL/DD Ratio: 1.06
+LLR: 2.23 (101.5%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
 efa7536 — Randomly handcoded RFP constants
 — SPSA converged on RFP multipliers (D1–D7); applied smoothed values
 --------------------------------------------------
