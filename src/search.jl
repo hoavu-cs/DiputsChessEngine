@@ -782,7 +782,7 @@ function search(b::Board, max_depth::Int, tid::Int; depth_offset::Int=0)::UInt64
 
         prev_best    = best_move
         had_asp_fail = false
-        window       = 25
+        window       = 35
         asp_α        = depth ≥ 6 ? prev_score - window : -∞
         asp_β        = depth ≥ 6 ? prev_score + window :  ∞
         best_score   = prev_score
