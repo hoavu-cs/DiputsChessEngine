@@ -474,8 +474,9 @@ function negamax(
 
     if ply > 1
         cnt = 0
-        for k in key_history
-            k == b.key && (cnt += 1)
+        start = max(1, length(key_history) - b.halfmove_clock + 1)
+        for i in start:length(key_history)
+            key_history[i] == b.key && (cnt += 1)
             cnt ≥ 2 && return 0
         end
         isdraw(b) && return 0
