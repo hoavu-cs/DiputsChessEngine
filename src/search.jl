@@ -466,6 +466,7 @@ function negamax(
     _NODE_COUNT[tid] += 1
     _SELDEPTH[tid] = max(_SELDEPTH[tid], ply)
     search_stopped[] && return 0
+    ply > 230 && return quiescence(b, α, β, ply, key_history, tid)
     if _NODE_COUNT[tid] & 0x3FFF == 0 && time_ns() ≥ search_deadline[]
         search_stopped[] = true
         return 0
@@ -576,8 +577,8 @@ function negamax(
     generate_moves!(ml_buf, b)
     ml       = view(ml_buf.moves, 1:ml_buf.count)
 
-    k1  = (ply > 1 && ply ≤ 256) ? killers[1, ply, tid] : Move(0)
-    k2  = (ply > 1 && ply ≤ 256) ? killers[2, ply, tid] : Move(0)
+    k1  = ply > 1 ? killers[1, ply, tid] : Move(0)
+    k2  = ply > 1 ? killers[2, ply, tid] : Move(0)
     sort_moves!(b, ml, ply, tt_best, k1, k2, tid)
 
     best_score      = -∞
@@ -643,10 +644,8 @@ function negamax(
         push!(key_history, b.key)
         move_stack[ply, tid] = (cur_pt, to(m).val)
 
-        if ply + 1 ≤ 256
-            killers[1, ply + 1, tid] = Move(0)
-            killers[2, ply + 1, tid] = Move(0)
-        end
+        killers[1, ply + 1, tid] = Move(0)
+        killers[2, ply + 1, tid] = Move(0)
 
         if lmr
             R = LMR_TABLE[depth, min(legal_moves, LMR_MOVES_MAX)]
@@ -709,10 +708,8 @@ function negamax(
                     bonus = depth * depth
 
                     if is_quiet
-                        if ply ≤ 256
-                            killers[2, ply, tid] = killers[1, ply, tid]
-                            killers[1, ply, tid] = m
-                        end
+                        killers[2, ply, tid] = killers[1, ply, tid]
+                        killers[1, ply, tid] = m
                         update_history!(stm, from(m).val, to(m).val, bonus, tid)
                         update_cont_hist!(stm, ply, cur_pt, to(m).val, bonus, tid)
                         update_pawn_hist!(b, cur_pt, to(m).val, bonus, tid)
@@ -785,7 +782,7 @@ function search(b::Board, max_depth::Int, tid::Int; depth_offset::Int=0)::UInt64
 
         prev_best    = best_move
         had_asp_fail = false
-        window       = 25
+        window       = 35
         asp_α        = depth ≥ 6 ? prev_score - window : -∞
         asp_β        = depth ≥ 6 ? prev_score + window :  ∞
         best_score   = prev_score
