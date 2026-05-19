@@ -466,7 +466,6 @@ function negamax(
     _NODE_COUNT[tid] += 1
     _SELDEPTH[tid] = max(_SELDEPTH[tid], ply)
     search_stopped[] && return 0
-    ply > 230 && return quiescence(b, α, β, ply, key_history, tid)
     if _NODE_COUNT[tid] & 0x3FFF == 0 && time_ns() ≥ search_deadline[]
         search_stopped[] = true
         return 0
@@ -474,9 +473,8 @@ function negamax(
 
     if ply > 1
         cnt = 0
-        start = max(1, length(key_history) - b.halfmove_clock + 1)
-        for i in start:length(key_history)
-            key_history[i] == b.key && (cnt += 1)
+        for k in key_history
+            k == b.key && (cnt += 1)
             cnt ≥ 2 && return 0
         end
         isdraw(b) && return 0
@@ -525,7 +523,7 @@ function negamax(
        (tt_flag == TT_UPPER && tt_score < eval)
         eval = tt_score
     end
-
+    
     eval = clamp(eval, -(MATE_SCORE - TT_MAX_PLY), MATE_SCORE - TT_MAX_PLY)
     eval_stack[ply, tid] = eval
     improving = !in_check && ply ≥ 3 && eval > eval_stack[ply - 2, tid]
@@ -578,8 +576,8 @@ function negamax(
     generate_moves!(ml_buf, b)
     ml       = view(ml_buf.moves, 1:ml_buf.count)
 
-    k1  = ply > 1 ? killers[1, ply, tid] : Move(0)
-    k2  = ply > 1 ? killers[2, ply, tid] : Move(0)
+    k1  = (ply > 1 && ply ≤ 256) ? killers[1, ply, tid] : Move(0)
+    k2  = (ply > 1 && ply ≤ 256) ? killers[2, ply, tid] : Move(0)
     sort_moves!(b, ml, ply, tt_best, k1, k2, tid)
 
     best_score      = -∞
@@ -622,17 +620,16 @@ function negamax(
                                  ply, key_history, tid; excluded_move = m)
             if sing_score < singular_β
                 ext = 1
-                if sing_score < singular_β - 20
+                if sing_score < singular_β - 20 
                     ext += 1 # double extension
                 end
-                if sing_score < singular_β - 40
+                if sing_score < singular_β - 40 
                     ext += 1 # triple extension
                 end
             elseif singular_β ≥ β
                 return singular_β  # multicut
             end
         end
-
         new_depth = depth - 1 + ext
 
         update!(nnue_accs[tid], b, m, nnue_net)
@@ -646,8 +643,10 @@ function negamax(
         push!(key_history, b.key)
         move_stack[ply, tid] = (cur_pt, to(m).val)
 
-        killers[1, ply + 1, tid] = Move(0)
-        killers[2, ply + 1, tid] = Move(0)
+        if ply + 1 ≤ 256
+            killers[1, ply + 1, tid] = Move(0)
+            killers[2, ply + 1, tid] = Move(0)
+        end
 
         if lmr
             R = LMR_TABLE[depth, min(legal_moves, LMR_MOVES_MAX)]
@@ -710,8 +709,10 @@ function negamax(
                     bonus = depth * depth
 
                     if is_quiet
-                        killers[2, ply, tid] = killers[1, ply, tid]
-                        killers[1, ply, tid] = m
+                        if ply ≤ 256
+                            killers[2, ply, tid] = killers[1, ply, tid]
+                            killers[1, ply, tid] = m
+                        end
                         update_history!(stm, from(m).val, to(m).val, bonus, tid)
                         update_cont_hist!(stm, ply, cur_pt, to(m).val, bonus, tid)
                         update_pawn_hist!(b, cur_pt, to(m).val, bonus, tid)
@@ -784,7 +785,7 @@ function search(b::Board, max_depth::Int, tid::Int; depth_offset::Int=0)::UInt64
 
         prev_best    = best_move
         had_asp_fail = false
-        window       = 35
+        window       = 25
         asp_α        = depth ≥ 6 ? prev_score - window : -∞
         asp_β        = depth ≥ 6 ? prev_score + window :  ∞
         best_score   = prev_score
