@@ -482,10 +482,6 @@ function negamax(
         isdraw(b) && return 0
     end
 
-    buf_idx  = min(ply, _MAX_BUF_PLY - 1) + 1
-    ml_buf   = is_singular ? _SING_BUFS[tid][buf_idx] : _MOVE_BUFS[tid][buf_idx]
-    generate_moves!(ml_buf, b)
-    ml       = view(ml_buf.moves, 1:ml_buf.count)
     in_check = ischeck(b)
     stm      = sidetomove(b) == WHITE ? 1 : 2
 
@@ -529,10 +525,17 @@ function negamax(
        (tt_flag == TT_UPPER && tt_score < eval)
         eval = tt_score
     end
-    
+
     eval = clamp(eval, -(MATE_SCORE - TT_MAX_PLY), MATE_SCORE - TT_MAX_PLY)
     eval_stack[ply, tid] = eval
     improving = !in_check && ply ≥ 3 && eval > eval_stack[ply - 2, tid]
+
+    # Mini-probcut: TT lower bound well above beta ⟹ prune
+    if ply > 1 && (tt_flag == TT_LOWER || tt_flag == TT_EXACT) && tt_stored_depth ≥ depth - 3 &&
+       tt_score ≥ β + 500 && abs(β) < MATE_SCORE - TT_MAX_PLY &&
+       abs(tt_score) < MATE_SCORE - TT_MAX_PLY && !is_singular
+        return β + 500
+    end
 
     # Reverse futility pruning (multiplier interpolated 120→175 over depths 1–7)
     if depth ≤ 7 && !in_check && !is_pv_node && !is_singular
@@ -570,12 +573,10 @@ function negamax(
         end
     end
 
-    # Mini-probcut: TT lower bound well above beta ⟹ prune
-    if ply > 1 && (tt_flag == TT_LOWER || tt_flag == TT_EXACT) && tt_stored_depth ≥ depth - 3 &&
-       tt_score ≥ β + 500 && abs(β) < MATE_SCORE - TT_MAX_PLY &&
-       abs(tt_score) < MATE_SCORE - TT_MAX_PLY && !is_singular
-        return β + 500
-    end
+    buf_idx  = min(ply, _MAX_BUF_PLY - 1) + 1
+    ml_buf   = is_singular ? _SING_BUFS[tid][buf_idx] : _MOVE_BUFS[tid][buf_idx]
+    generate_moves!(ml_buf, b)
+    ml       = view(ml_buf.moves, 1:ml_buf.count)
 
     k1  = ply > 1 ? killers[1, ply, tid] : Move(0)
     k2  = ply > 1 ? killers[2, ply, tid] : Move(0)
