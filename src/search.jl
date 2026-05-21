@@ -857,7 +857,7 @@ function smp_search(b::Board, max_depth::Int, time_soft::Int, time_hard::Int)::U
     end
 
     # threads 2 to n will just populate the TT.
-    # Alternate depth offset so helpers are out of phase with the main thread.
+    # Alternate depth offset so helpers are out of phase with the main thread (doing iterative deepening at some offset depth)
     tasks = Vector{Task}(undef, n)
     for tid in 2:n
         b_copy = deepcopy(b)
