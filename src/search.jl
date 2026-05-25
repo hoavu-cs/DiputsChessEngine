@@ -744,7 +744,7 @@ function negamax(
         return in_check ? -(MATE_SCORE - ply) : 0
     end
 
-    if !search_stopped[] && !in_check && depth ≥ 2
+    if !search_stopped[] && !in_check && depth ≥ 1
         diff = best_score - raw_eval
         best_is_capture = best_move ≠ Move(0) && moveiscapture(b, best_move)
         direction_ok = (best_score > α_0) ? (diff > 0) : (diff < 0)          # fail-high: up only; fail-low: down only
