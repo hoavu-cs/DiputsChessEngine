@@ -549,7 +549,7 @@ function negamax(
     end
 
     # Razoring: at depth 1, if eval is far below alpha, just return qsearch
-    if depth == 1 && !in_check && !is_pv_node && eval + 300 ≤ α
+    if depth ≤ 2 && !in_check && !is_pv_node && eval + 300 * depth * depth ≤ α
         return quiescence(b, α, β, ply, key_history, tid)
     end
 
