@@ -542,14 +542,15 @@ function negamax(
     if depth ≤ 7 && !in_check && !is_pv_node && !is_singular
         rfp_mult = (140, 145, 155, 160, 165, 175, 200)[depth]
         if eval ≥ β + rfp_mult * depth - 85 * improving
-            if tt_best == Move(0) || history[stm, from(tt_best).val, to(tt_best).val, tid] > 7000
+            if tt_best == Move(0) || history[stm, from(tt_best).val, to(tt_best).val, tid] > 6700
                 return (eval + β) ÷ 2
             end
         end
     end
 
     # Razoring: at depth 1, if eval is far below alpha, just return qsearch
-    if depth ≤ 2 && !in_check && !is_pv_node && eval + 300 * depth * depth ≤ α
+    razor_margins = (350, 1200)
+    if depth ≤ 2 && !in_check && !is_pv_node && eval + razor_margins[depth] ≤ α
         return quiescence(b, α, β, ply, key_history, tid)
     end
 
@@ -607,7 +608,7 @@ function negamax(
         # SEE pruning + cache for LMR tweak below.
         see_val = (!in_check && !is_pv_node && !is_singular) ? see(b, m) : 0
         if depth ≤ 8 && !in_check && !is_pv_node && !is_singular
-            see_threshold = is_capture ? -40 * depth : -80 * depth * depth
+            see_threshold = is_capture ? -45 * depth : -80 * depth * depth
             see_val < see_threshold && continue
         end
 
