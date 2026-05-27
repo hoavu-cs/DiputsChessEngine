@@ -1,6 +1,6 @@
 # Diputs Chess Engine
 
-A somewhat uninovative non-competitive UCI chess engine for trolling (same old search techniques and heuristics). I have ~ ~~1 week~~ 2 weeks to work on this engine to brush up on Julia and to correct some of the bugs in my previous C++ engine. Julia, like Python, is highly portable and easy on the eyes (this is probably the only thing interesting about this engine). 
+A somewhat uninovative non-competitive UCI chess engine for trolling (same old search techniques and heuristics). ~~I have 1 week 2 weeks to work on this engine~~ to brush up on Julia and to correct some of the bugs in my previous C++ engine. Julia, like Python, is highly portable and easy on the eyes (this is probably the only thing interesting about this engine). At the moment, I've used up my time budget; the engine won't be worked on regularly, but I might try a few patches here and there during free time. 
 
 This engine plays chess with an Elo and tries to win at the game of chess.
 
