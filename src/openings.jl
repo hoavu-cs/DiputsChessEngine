@@ -23,10 +23,6 @@ const _BOOK_LINES = [
     ["e2e4", "e7e5", "g1f3", "b8c6", "b1c3", "g8f6", "f1b5", "f8b4", "e1g1", "e8g8", "d2d3", "d7d6", "c1g5", "b4c3", "b2c3"],
     ["e2e4", "e7e5", "g1f3", "b8c6", "b1c3", "g8f6", "f1c4", "f8c5", "d2d3"],
     ["e2e4", "e7e5", "g1f3", "b8c6", "b1c3", "g8f6", "d2d4", "e5d4", "f3d4", "f8b4", "d4c6", "b7c6", "f1d3", "d7d5"],
-    # Petrov (Russian)
-    ["e2e4", "e7e5", "g1f3", "g8f6", "f3e5", "d7d6", "e5f3", "f6e4", "b1c3", "e4c3", "d2c3", "f8e7", "f1d3"],
-    ["e2e4", "e7e5", "g1f3", "g8f6", "f3e5", "d7d6", "e5f3", "f6e4", "d2d4", "d6d5", "f1d3", "f8e7"],
-    ["e2e4", "e7e5", "g1f3", "g8f6", "d2d4", "e5d4", "e4e5", "f6e4", "d1d4", "d7d5", "e5d6", "e4d6", "b1c3"],
 
     # ============================
     # 1. e4 c5 — Sicilian
@@ -40,15 +36,8 @@ const _BOOK_LINES = [
     # Dragon
     ["e2e4", "c7c5", "g1f3", "d7d6", "d2d4", "c5d4", "f3d4", "g8f6", "b1c3", "g7g6", "c1e3", "f8g7", "f2f3", "e8g8", "d1d2", "b8c6", "f1c4"],
     ["e2e4", "c7c5", "g1f3", "d7d6", "d2d4", "c5d4", "f3d4", "g8f6", "b1c3", "g7g6", "f1e2", "f8g7", "e1g1", "e8g8"],
-    # Scheveningen
-    ["e2e4", "c7c5", "g1f3", "d7d6", "d2d4", "c5d4", "f3d4", "g8f6", "b1c3", "e7e6", "f1e2", "f8e7", "e1g1", "e8g8", "c1e3", "b8c6"],
-    ["e2e4", "c7c5", "g1f3", "e7e6", "d2d4", "c5d4", "f3d4", "g8f6", "b1c3", "d7d6", "f1e2", "f8e7", "e1g1", "e8g8", "c1e3", "b8c6"],
-    ["e2e4", "c7c5", "g1f3", "e7e6", "d2d4", "c5d4", "f3d4", "g8f6", "b1c3", "d7d6", "g2g4", "h7h6"],
     # Taimanov
     ["e2e4", "c7c5", "g1f3", "e7e6", "d2d4", "c5d4", "f3d4", "b8c6", "b1c3", "a7a6", "f1e2", "d8c7", "e1g1", "g8f6", "c1e3"],
-    # Kan
-    ["e2e4", "c7c5", "g1f3", "e7e6", "d2d4", "c5d4", "f3d4", "a7a6", "b1c3", "d8c7", "f1d3", "g8f6", "e1g1", "b8c6"],
-    ["e2e4", "c7c5", "g1f3", "e7e6", "d2d4", "c5d4", "f3d4", "a7a6", "f1d3", "g8f6", "e1g1", "d7d6", "c2c4", "g7g6"],
     # Classical Sicilian
     ["e2e4", "c7c5", "g1f3", "d7d6", "d2d4", "c5d4", "f3d4", "g8f6", "b1c3", "b8c6", "f1c4", "e7e6", "c1e3", "f8e7", "d1e2"],
     # Sveshnikov
@@ -59,9 +48,6 @@ const _BOOK_LINES = [
     # ============================
     # 1. e4 e6 — French
     # ============================
-    ["e2e4", "e7e6", "d2d4", "d7d5", "b1c3", "g8f6", "c1g5", "f8e7", "e4e5", "f6d7", "g5e7", "d8e7", "f2f4"],
-    ["e2e4", "e7e6", "d2d4", "d7d5", "b1c3", "g8f6", "e4e5", "f6d7", "f2f4", "c7c5", "g1f3", "b8c6", "c1e3"],
-    ["e2e4", "e7e6", "d2d4", "d7d5", "b1c3", "f8b4", "e4e5", "c7c5", "a2a3", "b4c3", "b2c3", "g8e7", "d1g4"],
     ["e2e4", "e7e6", "d2d4", "d7d5", "b1d2", "g8f6", "e4e5", "f6d7", "f1d3", "c7c5", "c2c3", "b8c6", "g1e2"],
     ["e2e4", "e7e6", "d2d4", "d7d5", "b1d2", "c7c5", "e4d5", "e6d5", "g1f3", "b8c6", "f1b5", "f8d6"],
     ["e2e4", "e7e6", "d2d4", "d7d5", "e4e5", "c7c5", "c2c3", "b8c6", "g1f3", "d8b6", "a2a3", "c8d7"],
@@ -108,10 +94,6 @@ const _BOOK_LINES = [
     ["d2d4", "d7d5", "c2c4", "c7c6", "g1f3", "g8f6", "b1c3", "d5c4", "a2a4", "c8f5", "e2e3", "e7e6", "f1c4", "f8b4"],
     # Slav — Chebanenko
     ["d2d4", "d7d5", "c2c4", "c7c6", "g1f3", "g8f6", "b1c3", "a7a6"],
-    # QGA
-    ["d2d4", "d7d5", "c2c4", "d5c4", "e2e3", "g8f6", "f1c4", "e7e6", "g1f3", "a7a6", "e1g1", "c7c5"],
-    ["d2d4", "d7d5", "c2c4", "d5c4", "g1f3", "g8f6", "e2e3", "e7e6", "f1c4", "c7c5", "e1g1", "a7a6"],
-    ["d2d4", "d7d5", "c2c4", "d5c4", "e2e4", "e7e5", "g1f3", "e5d4", "f1c4", "b8c6", "e1g1"],
 
     # ============================
     # 1. d4 Nf6 — Indian Defenses
@@ -131,11 +113,6 @@ const _BOOK_LINES = [
     ["d2d4", "g8f6", "c2c4", "e7e6", "g1f3", "b7b6", "a2a3", "c8b7", "b1c3", "d7d5"],
     ["d2d4", "g8f6", "c2c4", "e7e6", "g1f3", "b7b6", "g2g3", "c8b7", "f1g2", "f8e7", "e1g1", "e8g8", "b1c3", "f6e4"],
     ["d2d4", "g8f6", "c2c4", "e7e6", "g1f3", "b7b6", "g2g3", "c8a6", "b2b3", "f8b4", "c1d2", "b4e7", "f1g2", "c7c6"],
-    # Catalan (from QGD move order)
-    ["d2d4", "d7d5", "c2c4", "e7e6", "g1f3", "g8f6", "g2g3", "f8e7", "f1g2", "e8g8", "e1g1", "d5c4"],
-    ["d2d4", "d7d5", "c2c4", "e7e6", "g1f3", "g8f6", "g2g3", "c7c6", "d1c2", "b8d7"],
-    # Catalan (from Nf6 move order)
-    ["d2d4", "g8f6", "c2c4", "e7e6", "g2g3", "d7d5", "f1g2", "f8e7", "g1f3", "e8g8", "e1g1", "d5c4"],
     # King's Indian
     ["d2d4", "g8f6", "c2c4", "g7g6", "b1c3", "f8g7", "e2e4", "d7d6", "g1f3", "e8g8", "f1e2", "e7e5", "e1g1", "b8c6", "d4d5", "c6e7"],
     ["d2d4", "g8f6", "c2c4", "g7g6", "b1c3", "f8g7", "e2e4", "d7d6", "f2f3", "e8g8", "c1e3", "e7e5", "g1e2"],
@@ -168,7 +145,6 @@ const _BOOK_LINES = [
     ["c2c4", "c7c5", "g1f3", "g8f6", "b1c3", "e7e6", "g2g3", "d7d5", "c4d5", "e6d5", "d2d4", "b8c6", "f1g2"],
     ["c2c4", "c7c5", "g1f3", "g8f6", "g2g3", "b7b6", "f1g2", "c8b7", "e1g1", "e7e6", "b1c3", "f8e7", "d2d4"],
     # Reverse Sicilian
-    ["c2c4", "e7e5", "b1c3", "g8f6", "g1f3", "b8c6", "g2g3", "f8b4", "f1g2", "e8g8", "e1g1", "f8e8"],
     ["c2c4", "e7e5", "b1c3", "g8f6", "g2g3", "f8b4", "f1g2", "e8g8", "e2e4", "b4c3", "b2c3"],
     # King's English
     ["c2c4", "e7e5", "g2g3", "g8f6", "f1g2", "d7d5", "c4d5", "f6d5", "b1c3", "d5b6", "g1f3", "b8c6", "e1g1", "f8e7"],
@@ -183,6 +159,7 @@ const _BOOK_LINES = [
     # ============================
     ["g1f3", "d7d5", "c2c4", "e7e6", "g2g3", "g8f6", "f1g2", "f8e7", "e1g1", "e8g8", "b2b3", "c7c5", "c4d5", "e6d5", "c1b2", "b8c6", "d2d4"],
     ["g1f3", "d7d5", "c2c4", "c7c6", "g2g3", "g8f6", "f1g2", "c8f5", "c4d5", "c6d5", "d1b3"],
+    ["g1f3", "d7d5", "c2c4", "c7c6", "g2g3", "g8f6", "f1g2", "c8f5", "b2b3", "e7e6", "c1b2", "b8d7", "e1g1", "f8d6"],
     ["g1f3", "g8f6", "c2c4", "e7e6", "g2g3", "d7d5", "f1g2", "f8e7", "e1g1", "e8g8", "b2b3", "c7c5", "c1b2", "b8c6", "e2e3"],
     ["g1f3", "g8f6", "c2c4", "g7g6", "b1c3", "f8g7", "e2e4", "d7d6", "d2d4", "e8g8", "f1e2", "e7e5"],
     ["g1f3", "g8f6", "g2g3", "g7g6", "f1g2", "f8g7", "e1g1", "e8g8", "c2c4", "d7d6", "b1c3", "b8c6", "d2d4"],
@@ -194,5 +171,4 @@ const _BOOK_LINES = [
     ["c2c4", "e7e6", "g1f3", "g8f6", "g2g3", "d7d5", "f1g2", "f8e7", "e1g1", "e8g8"],
     ["g1f3", "g8f6", "g2g3", "b7b6", "f1g2", "c8b7", "e1g1", "e7e6", "d2d3"],
     ["g1f3", "c7c5", "c2c4", "g8f6", "b1c3", "b8c6", "g2g3", "d7d5", "c4d5", "f6d5", "f1g2"],
-    ["d2d4", "e7e6", "g1f3", "g8f6", "e2e3", "b7b6", "c2c4", "c8b7", "b1c3", "f8b4", "d1c2", "e8g8"],
 ]
