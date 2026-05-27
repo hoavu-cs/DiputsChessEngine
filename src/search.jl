@@ -109,7 +109,7 @@ end
 init_lmr_table!()
 
 const _MAX_BUF_PLY = 512
-# Pre-allocated per-thread, per-ply move buffers — eliminates ~2KB alloc per node
+# Pre-allocated per-thread, per-ply move buffers - eliminates ~2KB alloc per node
 const _MOVE_BUFS = [[MoveList() for _ in 1:_MAX_BUF_PLY] for _ in 1:_N_THREADS]
 # Separate buffers for singular searches to avoid clobbering the outer node's move list
 const _SING_BUFS = [[MoveList() for _ in 1:_MAX_BUF_PLY] for _ in 1:_N_THREADS]
@@ -131,8 +131,8 @@ const nnue_accs = [Accumulator() for _ in 1:_N_THREADS]
 # ============================================================
 """
     Gravity moving average update:
-    new = old + 0.35 * (bonus - old)
-        ≈ 0.648 * old + 0.352 * bonus
+    new = old + 0.25 * (bonus - old)
+        ≈ 0.75 * old + 0.25 * bonus
     Then clamp to [-Γ, Γ].
 """
 
@@ -203,7 +203,7 @@ const search_soft_deadline = Ref{UInt64}(typemax(UInt64))
 # Pawn correction history: adjusts eval based on previous search outcomes
 const _PAWN_HIST_SIZE = 1 << 14
 const _PAWN_HIST_MASK = _PAWN_HIST_SIZE - 1
-const pawn_hist       = zeros(Int16, 6, 64, _PAWN_HIST_SIZE, _N_THREADS)  # [pt, to, ph, tid]
+const pawn_hist       = zeros(Int16, 6, 64, _PAWN_HIST_SIZE)  # [pt, to, ph]
 
 const _CORR_SIZE    = 1 << 16
 const _CORR_MASK    = _CORR_SIZE - 1
@@ -217,14 +217,14 @@ const _CORR_TABLE   = zeros(Int16, 2, _CORR_SIZE)  # [white, black]
     Int(pk & _PAWN_HIST_MASK) + 1
 end
 
-@inline function pawn_hist_score(b::Board, pt::Int, to::Int, tid::Int)::Int
-    Int(pawn_hist[pt, to, pawn_hist_idx(b), tid])
+@inline function pawn_hist_score(b::Board, pt::Int, to::Int)::Int
+    Int(pawn_hist[pt, to, pawn_hist_idx(b)])
 end
 
-@inline function update_pawn_hist!(b::Board, pt::Int, to::Int, bonus::Int, tid::Int)
+@inline function update_pawn_hist!(b::Board, pt::Int, to::Int, bonus::Int)
     idx = pawn_hist_idx(b)
-    old = Int(pawn_hist[pt, to, idx, tid])
-    pawn_hist[pt, to, idx, tid] = Int16(clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ))
+    old = Int(pawn_hist[pt, to, idx])
+    pawn_hist[pt, to, idx] = Int16(clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ))
 end
 
 @inline function corr_value(key::UInt64, color::Int)::Int
@@ -238,7 +238,7 @@ end
     _CORR_TABLE[color, idx] = Int16(newv)
 end
 
-# Minor piece correction history — same pattern, indexed by knight+bishop hash
+# Minor piece correction history - same pattern, indexed by knight+bishop hash
 const _MINOR_SIZE  = 1 << 14
 const _MINOR_MASK  = _MINOR_SIZE - 1
 const _MINOR_TABLE = zeros(Int16, 2, _MINOR_SIZE)
@@ -258,7 +258,7 @@ end
     _MINOR_TABLE[color, idx] = Int16(newv)
 end
 
-# Major piece correction history — keys on major material (queens + rooks), split by WHITE/BLACK.
+# Major piece correction history - keys on major material (queens + rooks), split by WHITE/BLACK.
 const _MAJORW_SIZE = 1 << 14
 const _MAJORW_MASK = _MAJORW_SIZE - 1
 const _MAJORW_TABLE = zeros(Int16, 2, _MAJORW_SIZE)
@@ -332,7 +332,7 @@ const _SCORE_BAD_CAPTURE =  -100_000   # bad captures (SEE < 0): below all quiet
     prev2_pt, prev2_to = ply ≥ 3 ? move_stack[ply - 2, tid] : (0, 0)
     ch  = prev_pt  > 0 ? @inbounds(Int(cont_hist[to(m).val,  cur_pt, prev_to,  prev_pt,  color, tid])) : 0
     ch2 = prev2_pt > 0 ? @inbounds(Int(cont_hist2[to(m).val, cur_pt, prev2_to, prev2_pt, color, tid])) : 0
-    ph  = pawn_hist_score(b, cur_pt, to(m).val, tid)
+    ph  = pawn_hist_score(b, cur_pt, to(m).val)
     return @inbounds(history[color, from(m).val, to(m).val, tid]) + (ch ÷ 2) + (ch2 ÷ 3) + (ph ÷ 2)
 end
 
@@ -414,7 +414,7 @@ function quiescence(b::Board, α::Int, β::Int, ply::Int, key_history::Vector{UI
     for m in cap_view
         search_stopped[] && break
 
-        # Skip captures that lose material — they can't raise alpha from stand_pat.
+        # Skip captures that lose material - they can't raise alpha from stand_pat.
         see(b, m) < 0 && continue
 
         update!(nnue_accs[tid], b, m, nnue_net)
@@ -714,12 +714,12 @@ function negamax(
                         killers[1, ply, tid] = m
                         update_history!(stm, from(m).val, to(m).val, bonus, tid)
                         update_cont_hist!(stm, ply, cur_pt, to(m).val, bonus, tid)
-                        update_pawn_hist!(b, cur_pt, to(m).val, bonus, tid)
+                        update_pawn_hist!(b, cur_pt, to(m).val, bonus)
                         for qm in searched_quiets
                             qm_pt = ptype(pieceon(b, from(qm))).val
                             update_history!(stm, from(qm).val, to(qm).val, -bonus, tid)
                             update_cont_hist!(stm, ply, qm_pt, to(qm).val, -bonus, tid)
-                            update_pawn_hist!(b, qm_pt, to(qm).val, -bonus, tid)
+                            update_pawn_hist!(b, qm_pt, to(qm).val, -bonus)
                         end
                     elseif is_capture && depth > 2
                         pc     = Int(b.pieces[from(m).val])
