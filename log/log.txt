@@ -1,6 +1,61 @@
 === SPRT Results Log ===
 
 
+41d52f5 — Share pawn correction history among threads
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (8+0.08, NULL, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 2.62 +/- 11.19, nElo: 4.17 +/- 17.82
+LOS: 67.68 %, DrawRatio: 45.07 %, PairsRatio: 1.00
+Games: 1460, Wins: 399, Losses: 388, Draws: 673, Points: 735.5 (50.38 %)
+Ptnml(0-2): [24, 176, 329, 167, 34], WL/DD Ratio: 0.99
+LLR: -0.10 (-4.6%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
+3c3ac2c — Extend razoring to depth 2
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (10+0.1, NULL, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 8.83 +/- 7.84, nElo: 14.62 +/- 12.98
+LOS: 98.64 %, DrawRatio: 45.10 %, PairsRatio: 1.14
+Games: 2754, Wins: 764, Losses: 694, Draws: 1296, Points: 1412.0 (51.27 %)
+Ptnml(0-2): [31, 323, 621, 349, 53], WL/DD Ratio: 0.99
+LLR: 2.20 (100.0%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
+5a67047 — Change correction history depth threshold to 1
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (8+0.08, NULL, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 7.79 +/- 7.06, nElo: 12.66 +/- 11.47
+LOS: 98.47 %, DrawRatio: 45.77 %, PairsRatio: 1.14
+Games: 3526, Wins: 1010, Losses: 931, Draws: 1585, Points: 1802.5 (51.12 %)
+Ptnml(0-2): [55, 392, 807, 437, 72], WL/DD Ratio: 1.13
+LLR: 2.23 (101.7%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
+60e8937 — Move movegen after pruning
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (12+0.12, NULL, 64MB, UHO_Lichess_4852_v1.epd):
+Elo: 19.49 +/- 13.79, nElo: 28.80 +/- 20.31
+LOS: 99.73 %, DrawRatio: 39.86 %, PairsRatio: 1.33
+Games: 1124, Wins: 371, Losses: 308, Draws: 445, Points: 593.5 (52.80 %)
+Ptnml(0-2): [23, 122, 224, 155, 38], WL/DD Ratio: 1.67
+LLR: 2.20 (100.2%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
+d7d856b — Widen aspiration window (25 -> 35)
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (12+0.12, NULL, 64MB, UHO_Lichess_4852_v1.epd):
+Elo: 9.19 +/- 8.27, nElo: 13.77 +/- 12.38
+LOS: 98.53 %, DrawRatio: 41.53 %, PairsRatio: 1.11
+Games: 3024, Wins: 931, Losses: 851, Draws: 1242, Points: 1552.0 (51.32 %)
+Ptnml(0-2): [62, 356, 628, 372, 94], WL/DD Ratio: 1.44
+LLR: 2.20 (100.0%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
+17d9473 — Time management
+--------------------------------------------------
+(no SPRT result recorded)
+--------------------------------------------------
+
 b5e2e5d — Add triple extension
 --------------------------------------------------
 Results of DIPUTEXP vs Diputs (15+0.15, NULL, 64MB, UHO_Lichess_4852_v1.epd):
