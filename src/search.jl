@@ -618,7 +618,7 @@ function negamax(
         if m == tt_best && !is_singular && ply > 1 && depth ≥ 6 && tt_flag ≠ TT_UPPER && ply ≤ 2 * _ROOT_DEPTH[tid] &&
             abs(tt_score) < MATE_SCORE - TT_MAX_PLY && tt_stored_depth ≥ depth - 3
 
-            singular_β  = tt_score - 6 * depth 
+            singular_β  = tt_score - 3 * depth 
             singular_depth = (depth ÷ 2) + 1
             sing_score = negamax(CutNode, b, singular_depth, singular_β - 1, singular_β,
                                  ply, key_history, tid; excluded_move = m)
