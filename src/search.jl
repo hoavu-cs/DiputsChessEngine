@@ -481,6 +481,11 @@ function negamax(
             cnt ≥ 2 && return 0
         end
         isdraw(b) && return 0
+
+        # Mate distance pruning
+        α = max(α, -(MATE_SCORE - ply))
+        β = min(β,   MATE_SCORE - ply)
+        α ≥ β && return α
     end
 
     in_check = ischeck(b)
@@ -541,14 +546,12 @@ function negamax(
     # Reverse futility pruning (multiplier interpolated 120→175 over depths 1–7)
     if depth ≤ 7 && !in_check && !is_pv_node && !is_singular
         rfp_mult = (140, 145, 155, 160, 165, 175, 200)[depth]
-        if eval ≥ β + rfp_mult * depth - 85 * improving
-            if tt_best == Move(0) || history[stm, from(tt_best).val, to(tt_best).val, tid] > 6700
-                return (eval + β) ÷ 2
-            end
+        if eval ≥ β + rfp_mult * depth - 85 * improving && tt_best == Move(0)
+            return (eval + β) ÷ 2
         end
     end
 
-    # Razoring: at depth 1, if eval is far below alpha, just return qsearch
+    # Razoring: at depth 1 and 2, if eval is far below alpha, just return qsearch
     razor_margins = (350, 1200)
     if depth ≤ 2 && !in_check && !is_pv_node && eval + razor_margins[depth] ≤ α
         return quiescence(b, α, β, ply, key_history, tid)
