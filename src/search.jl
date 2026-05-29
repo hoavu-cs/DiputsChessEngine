@@ -333,7 +333,7 @@ const _SCORE_BAD_CAPTURE =  -100_000   # bad captures (SEE < 0): below all quiet
     ch  = prev_pt  > 0 ? @inbounds(Int(cont_hist[to(m).val,  cur_pt, prev_to,  prev_pt,  color, tid])) : 0
     ch2 = prev2_pt > 0 ? @inbounds(Int(cont_hist2[to(m).val, cur_pt, prev2_to, prev2_pt, color, tid])) : 0
     ph  = pawn_hist_score(b, cur_pt, to(m).val)
-    return @inbounds(history[color, from(m).val, to(m).val, tid]) + (ch ÷ 2) + (ch2 ÷ 3) + (ph ÷ 2)
+    return @inbounds(history[color, from(m).val, to(m).val, tid]) + (ch * 550 ÷ 1000) + (ch2 * 600 ÷ 1000) + (ph * 550 ÷ 1000)
 end
 
 function sort_moves!(
