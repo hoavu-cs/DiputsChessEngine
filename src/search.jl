@@ -537,7 +537,7 @@ function negamax(
     improving = !in_check && ply ≥ 3 && eval > eval_stack[ply - 2, tid]
 
     # Mini-probcut: TT lower bound well above beta ⟹ prune
-    if ply > 1 && (tt_flag == TT_LOWER || tt_flag == TT_EXACT) && tt_stored_depth ≥ depth - 3 &&
+    if ply > 1 && (tt_flag == TT_LOWER || tt_flag == TT_EXACT) && tt_stored_depth ≥ depth - 4 &&
        tt_score ≥ β + 500 && abs(β) < MATE_SCORE - TT_MAX_PLY &&
        abs(tt_score) < MATE_SCORE - TT_MAX_PLY && !is_singular
         return β + 500
