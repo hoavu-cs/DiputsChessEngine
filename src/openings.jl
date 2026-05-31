@@ -54,8 +54,10 @@ const _BOOK_LINES = [
     # ============================
     ["e2e4", "c7c6", "d2d4", "d7d5", "b1c3", "d5e4", "c3e4", "c8f5", "e4g3", "f5g6", "h2h4", "h7h6", "g1f3", "b8d7"],
     ["e2e4", "c7c6", "d2d4", "d7d5", "b1c3", "d5e4", "c3e4", "b8d7", "g1f3", "g8f6", "e4g3", "e7e6"],
+    ["e2e4", "c7c6", "d2d4", "d7d5", "b1c3", "d5e4", "c3e4", "g8f6", "e4f6", "e7f6", "c2c3", "f8d6", "f1d3", "e8g8"],
     ["e2e4", "c7c6", "d2d4", "d7d5", "b1d2", "d5e4", "d2e4", "c8f5", "e4g3", "f5g6", "h2h4", "h7h6"],
     ["e2e4", "c7c6", "d2d4", "d7d5", "e4e5", "c8f5", "g1f3", "e7e6", "f1e2", "c6c5", "c2c3"],
+    ["e2e4", "c7c6", "d2d4", "d7d5", "e4e5", "c6c5", "g1f3", "c5d4", "f3d4", "b8c6"],
     ["e2e4", "c7c6", "d2d4", "d7d5", "e4d5", "c6d5", "c2c4", "g8f6", "b1c3", "e7e6", "g1f3", "f8e7"],
 
 
@@ -103,6 +105,8 @@ const _BOOK_LINES = [
     ["d2d4", "g8f6", "c2c4", "e7e6", "b1c3", "f8b4", "d1c2", "d7d5", "a2a3", "b4c3", "c2c3"],
     # Nimzo-Indian — Kasparov
     ["d2d4", "g8f6", "c2c4", "e7e6", "b1c3", "f8b4", "g1f3", "c7c5", "d4d5", "e8g8"],
+    # Nimzo-Indian — Qa4+ (Spassky)
+    ["d2d4", "g8f6", "g1f3", "d7d5", "c2c4", "e7e6", "b1c3", "f8b4", "d1a4", "b8c6", "e2e3", "e8g8", "a4c2", "c6e7"],
     # Bogo-Indian
     ["d2d4", "g8f6", "c2c4", "e7e6", "g1f3", "f8b4", "c1d2", "d8e7", "g2g3", "e8g8", "f1g2"],
     ["d2d4", "g8f6", "c2c4", "e7e6", "g1f3", "f8b4", "b1d2", "e8g8", "a2a3", "b4e7"],
@@ -130,6 +134,7 @@ const _BOOK_LINES = [
     ["d2d4", "g8f6", "c2c4", "e7e5", "d4e5", "f6g4", "g1f3", "b8c6", "c1f4"],
     # Torre / London / Colle
     ["d2d4", "d7d5", "g1f3", "g8f6", "c1f4", "e7e6", "e2e3", "c7c5", "c2c3", "b8c6", "b1d2", "f8d6"],
+    ["d2d4", "g8f6", "c1f4", "d7d5", "e2e3", "c7c5", "b1d2", "e7e6", "g1f3", "f8d6"],
     ["d2d4", "d7d5", "g1f3", "g8f6", "c1g5", "e7e6", "e2e3", "c7c5", "c2c3"],
     ["d2d4", "g8f6", "g1f3", "d7d5", "e2e3", "e7e6", "c2c4", "f8e7", "b1c3", "e8g8"],
 
@@ -146,6 +151,7 @@ const _BOOK_LINES = [
     # King's English
     ["c2c4", "e7e5", "g2g3", "g8f6", "f1g2", "d7d5", "c4d5", "f6d5", "b1c3", "d5b6", "g1f3", "b8c6", "e1g1", "f8e7"],
     ["c2c4", "e7e5", "g2g3", "b8c6", "f1g2", "g7g6", "b1c3", "f8g7", "d2d3", "d7d6"],
+    ["c2c4", "e7e5", "g2g3", "g8f6", "f1g2", "f8c5", "d2d3", "d7d5", "g1f3", "b8c6", "c4d5", "f6d5", "b1c3", "e8g8", "e1g1", "h7h6"],
     # Hedgehog
     ["c2c4", "c7c5", "g1f3", "g8f6", "b1c3", "e7e6", "d2d4", "c5d4", "d1d4", "b8c6", "d4e3"],
     # English vs King's Indian setups

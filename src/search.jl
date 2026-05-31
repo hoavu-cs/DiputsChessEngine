@@ -569,7 +569,7 @@ function negamax(
             has_piece && break
         end
         if has_piece
-            R = min(4 + div(depth, 3) + min(div(eval - β, 200), 3), depth - 1)
+            R = min(4 + div(depth, 3), depth - 1)
             u = donullmove!(b)
             move_stack[ply, tid] = (0, 0)
             sc = -negamax(CutNode, b, depth - 1 - R, -β, -β + 1, ply + 1, key_history, tid)
