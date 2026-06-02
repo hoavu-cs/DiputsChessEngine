@@ -4,17 +4,47 @@ const NNUE_BUCKETS = 8
 const NNUE_SCALE   = 400
 const NNUE_QA      = 255
 const NNUE_QB      = 64
+const NNUE_IB      = 10   # king input buckets (ChessBucketsMirrored)
+
+# King bucket layout: 32 entries indexed by rank*4 + mirror_file
+# rank=0(rank1)..7(rank8), mirror_file = min(file, 7-file)
+const _IB_LAYOUT = (
+    0, 1, 2, 3,
+    4, 4, 5, 5,
+    6, 6, 6, 6,
+    7, 7, 7, 7,
+    8, 8, 8, 8,
+    8, 8, 8, 8,
+    9, 9, 9, 9,
+    9, 9, 9, 9,
+)
+
+# King bucket from standard 0-based square (A1=0, ..., H8=63)
+@inline function _king_bucket(sq::Int)::Int
+    rank  = sq >> 3
+    file  = sq & 7
+    mfile = file > 3 ? 7 - file : file
+    @inbounds _IB_LAYOUT[rank * 4 + mfile + 1]
+end
+
+# File-flip value: XOR feature index with 7 when king is on files E-H
+@inline _king_flip(sq::Int) = (sq & 7) > 3 ? 7 : 0
 
 struct NNUENet
-    fw::Matrix{Int16}   # NNUE_HL × NNUE_INPUT   (column j = feature j weight vector)
+    fw::Matrix{Int16}   # NNUE_HL × (NNUE_INPUT × NNUE_IB)  
     fb::Vector{Int16}   # NNUE_HL
-    ow::Matrix{Int16}   # 2*NNUE_HL × NNUE_BUCKETS  (column k = bucket k-1 weights, transposed)
+    ow::Matrix{Int16}   # 2*NNUE_HL × NNUE_BUCKETS
     ob::Vector{Int16}   # NNUE_BUCKETS
 end
 
+# quantised.bin layout (from train_ib.rs):
+#   l0w : Int16[1024, 768 × NNUE_IB]   (QA=255, factoriser merged)
+#   l0b : Int16[1024]
+#   l1w : Int16[2*1024, NNUE_BUCKETS]  (QB=64, transposed)
+#   l1b : Int16[NNUE_BUCKETS]
 function load_nnue(path::String)::NNUENet
     open(path, "r") do io
-        fw = Matrix{Int16}(undef, NNUE_HL, NNUE_INPUT)
+        fw = Matrix{Int16}(undef, NNUE_HL, NNUE_INPUT * NNUE_IB)
         read!(io, fw)
         fb = Vector{Int16}(undef, NNUE_HL)
         read!(io, fb)
@@ -33,37 +63,48 @@ function _material_bucket(b::Board)::Int
     n ÷ cld(32, NNUE_BUCKETS) + 1
 end
 
-# Accumulator: two NNUE_HL vectors — one per king orientation (white / black perspective)
+# Two NNUE_HL accumulators (white / black perspective) plus king state
 mutable struct Accumulator
-    w::Vector{Int32}   # white's perspective
-    b::Vector{Int32}   # black's perspective
+    w::Vector{Int32}
+    b::Vector{Int32}
+    wksq::Int   # white king std 0-based square
+    bksq::Int   # black king std 0-based square
+    dirty::Bool # true ⟹ needs refresh! before eval
 end
-Accumulator() = Accumulator(zeros(Int32, NNUE_HL), zeros(Int32, NNUE_HL))
 
-# Our Square.val is 1-indexed row-major (A1=1…H8=64) → standard 0-based (A1=0…H8=63)
+Accumulator() = Accumulator(
+    zeros(Int32, NNUE_HL), zeros(Int32, NNUE_HL),
+    4, 60,   # e1, e8 (starting squares: overwritten on first refresh!)
+    true
+)
+
+# sq.val is 1-indexed (A1=1 … H8=64); 0-based standard (A1=0 … H8=63)
 @inline _nnue_sq(v::Int) = v - 1
 
-# 1-based feature index:  side=0 own / 1 opponent,  pt=0..5 (Pawn..King),  sq=0..63
-@inline _feat(side::Int, pt::Int, sq::Int) = side * 384 + pt * 64 + sq + 1
+# 1-indexed column in fw: bucket offset + (side*384 + pt*64 + sq) XOR file-flip
+@inline _feat_ib(bkt::Int, flip::Int, side::Int, pt::Int, sq::Int) =
+    (side * 384 + pt * 64 + sq) ⊻ flip + bkt * NNUE_INPUT + 1
 
-# Accumulator addition
-@inline function _acc_add!(v::Vector{Int32}, fw::Matrix{Int16}, side::Int, pt::Int, sq::Int)
-    f = _feat(side, pt, sq)
+@inline function _acc_add!(v::Vector{Int32}, fw::Matrix{Int16}, bkt::Int, flip::Int, side::Int, pt::Int, sq::Int)
+    f = _feat_ib(bkt, flip, side, pt, sq)
     @inbounds @simd for j in 1:NNUE_HL
         v[j] += Int32(fw[j, f])
     end
 end
 
-# Accumulator subtraction
-@inline function _acc_sub!(v::Vector{Int32}, fw::Matrix{Int16}, side::Int, pt::Int, sq::Int)
-    f = _feat(side, pt, sq)
+@inline function _acc_sub!(v::Vector{Int32}, fw::Matrix{Int16}, bkt::Int, flip::Int, side::Int, pt::Int, sq::Int)
+    f = _feat_ib(bkt, flip, side, pt, sq)
     @inbounds @simd for j in 1:NNUE_HL
         v[j] -= Int32(fw[j, f])
     end
 end
 
-# Full recomputation from board position
+# Full accumulator recomputation from board position
 function refresh!(acc::Accumulator, b::Board, net::NNUENet)
+    wksq  = Int(trailing_zeros(b.bb[BB_WK]))
+    bksq  = Int(trailing_zeros(b.bb[BB_BK]))
+    wbkt  = _king_bucket(wksq);       wflip = _king_flip(wksq)
+    bbkt  = _king_bucket(bksq ⊻ 56); bflip = _king_flip(bksq)
     fw = net.fw
     @inbounds for i in 1:NNUE_HL
         acc.w[i] = acc.b[i] = Int32(net.fb[i])
@@ -71,36 +112,37 @@ function refresh!(acc::Accumulator, b::Board, net::NNUENet)
     for (pt_jl, pt) in ((PAWN,0),(KNIGHT,1),(BISHOP,2),(ROOK,3),(QUEEN,4),(KING,5))
         for sq in pieces(b, WHITE, pt_jl)
             std = _nnue_sq(sq.val)
-            _acc_add!(acc.w, fw, 0, pt, std)
-            _acc_add!(acc.b, fw, 1, pt, std ⊻ 56)
+            _acc_add!(acc.w, fw, wbkt, wflip, 0, pt, std)
+            _acc_add!(acc.b, fw, bbkt, bflip, 1, pt, std ⊻ 56)
         end
         for sq in pieces(b, BLACK, pt_jl)
             std = _nnue_sq(sq.val)
-            _acc_add!(acc.b, fw, 0, pt, std ⊻ 56)
-            _acc_add!(acc.w, fw, 1, pt, std)
+            _acc_add!(acc.b, fw, bbkt, bflip, 0, pt, std ⊻ 56)
+            _acc_add!(acc.w, fw, wbkt, wflip, 1, pt, std)
         end
     end
+    acc.wksq  = wksq
+    acc.bksq  = bksq
+    acc.dirty = false
 end
 
-# Helpers to apply/reverse a quiet or capture move on a single accumulator in place.
-# Both must be called with the board in the PRE-move state.
-# Val{true} = apply (update!), Val{false} = reverse (undo_update!).
-@inline function _apply_move!(acc::Accumulator, b::Board, m::UInt64, net::NNUENet, ::Val{add}) where {add}
+# Incremental update for a regular or capture move (pre-move board state)
+@inline function _apply_move!(acc::Accumulator, b::Board, m::UInt64, fw::Matrix{Int16},
+                               wbkt::Int, wflip::Int, bbkt::Int, bflip::Int, ::Val{add}) where {add}
     piece = pieceon(b, from(m))
     pt    = ptype(piece).val - 1
-    fw    = net.fw
     fsq   = _nnue_sq(from(m).val)
     tsq   = _nnue_sq(to(m).val)
 
     if pcolor(piece) == WHITE
-        fw_to  = _feat(0, pt, tsq)
-        fw_frm = _feat(0, pt, fsq)
-        fb_to  = _feat(1, pt, tsq ⊻ 56)
-        fb_frm = _feat(1, pt, fsq ⊻ 56)
+        fw_to  = _feat_ib(wbkt, wflip, 0, pt, tsq)
+        fw_frm = _feat_ib(wbkt, wflip, 0, pt, fsq)
+        fb_to  = _feat_ib(bbkt, bflip, 1, pt, tsq ⊻ 56)
+        fb_frm = _feat_ib(bbkt, bflip, 1, pt, fsq ⊻ 56)
         if moveiscapture(b, m)
             cp     = ptype(pieceon(b, to(m))).val - 1
-            fw_cap = _feat(1, cp, tsq)
-            fb_cap = _feat(0, cp, tsq ⊻ 56)
+            fw_cap = _feat_ib(wbkt, wflip, 1, cp, tsq)
+            fb_cap = _feat_ib(bbkt, bflip, 0, cp, tsq ⊻ 56)
             @inbounds @simd for j in 1:NNUE_HL
                 δ = Int32(fw[j, fw_to]) - Int32(fw[j, fw_frm]) - Int32(fw[j, fw_cap])
                 acc.w[j] += add ? δ : -δ
@@ -120,14 +162,14 @@ end
             end
         end
     else
-        fb_to  = _feat(0, pt, tsq ⊻ 56)
-        fb_frm = _feat(0, pt, fsq ⊻ 56)
-        fw_to  = _feat(1, pt, tsq)
-        fw_frm = _feat(1, pt, fsq)
+        fb_to  = _feat_ib(bbkt, bflip, 0, pt, tsq ⊻ 56)
+        fb_frm = _feat_ib(bbkt, bflip, 0, pt, fsq ⊻ 56)
+        fw_to  = _feat_ib(wbkt, wflip, 1, pt, tsq)
+        fw_frm = _feat_ib(wbkt, wflip, 1, pt, fsq)
         if moveiscapture(b, m)
             cp     = ptype(pieceon(b, to(m))).val - 1
-            fb_cap = _feat(1, cp, tsq ⊻ 56)
-            fw_cap = _feat(0, cp, tsq)
+            fb_cap = _feat_ib(bbkt, bflip, 1, cp, tsq ⊻ 56)
+            fw_cap = _feat_ib(wbkt, wflip, 0, cp, tsq)
             @inbounds @simd for j in 1:NNUE_HL
                 δ = Int32(fw[j, fb_to]) - Int32(fw[j, fb_frm]) - Int32(fw[j, fb_cap])
                 acc.b[j] += add ? δ : -δ
@@ -149,132 +191,105 @@ end
     end
 end
 
-@inline function _apply_ep!(acc::Accumulator, b::Board, m::UInt64, net::NNUENet, ::Val{add}) where {add}
-    fw   = net.fw
-    fsq  = _nnue_sq(from(m).val)
-    tsq  = _nnue_sq(to(m).val)
+@inline function _apply_ep!(acc::Accumulator, b::Board, m::UInt64, fw::Matrix{Int16},
+                             wbkt::Int, wflip::Int, bbkt::Int, bflip::Int, ::Val{add}) where {add}
+    fsq   = _nnue_sq(from(m).val)
+    tsq   = _nnue_sq(to(m).val)
     ep_sq = ((from(m).val - 1) >> 3) * 8 + ((to(m).val - 1) & 7)
 
     if pcolor(pieceon(b, from(m))) == WHITE
-        add ? _acc_sub!(acc.w, fw, 0, 0, fsq)        : _acc_add!(acc.w, fw, 0, 0, fsq)
-        add ? _acc_add!(acc.w, fw, 0, 0, tsq)        : _acc_sub!(acc.w, fw, 0, 0, tsq)
-        add ? _acc_sub!(acc.w, fw, 1, 0, ep_sq)      : _acc_add!(acc.w, fw, 1, 0, ep_sq)
-        add ? _acc_sub!(acc.b, fw, 1, 0, fsq ⊻ 56)  : _acc_add!(acc.b, fw, 1, 0, fsq ⊻ 56)
-        add ? _acc_add!(acc.b, fw, 1, 0, tsq ⊻ 56)  : _acc_sub!(acc.b, fw, 1, 0, tsq ⊻ 56)
-        add ? _acc_sub!(acc.b, fw, 0, 0, ep_sq ⊻ 56) : _acc_add!(acc.b, fw, 0, 0, ep_sq ⊻ 56)
+        add ? _acc_sub!(acc.w, fw, wbkt, wflip, 0, 0, fsq)         : _acc_add!(acc.w, fw, wbkt, wflip, 0, 0, fsq)
+        add ? _acc_add!(acc.w, fw, wbkt, wflip, 0, 0, tsq)         : _acc_sub!(acc.w, fw, wbkt, wflip, 0, 0, tsq)
+        add ? _acc_sub!(acc.w, fw, wbkt, wflip, 1, 0, ep_sq)       : _acc_add!(acc.w, fw, wbkt, wflip, 1, 0, ep_sq)
+        add ? _acc_sub!(acc.b, fw, bbkt, bflip, 1, 0, fsq ⊻ 56)   : _acc_add!(acc.b, fw, bbkt, bflip, 1, 0, fsq ⊻ 56)
+        add ? _acc_add!(acc.b, fw, bbkt, bflip, 1, 0, tsq ⊻ 56)   : _acc_sub!(acc.b, fw, bbkt, bflip, 1, 0, tsq ⊻ 56)
+        add ? _acc_sub!(acc.b, fw, bbkt, bflip, 0, 0, ep_sq ⊻ 56) : _acc_add!(acc.b, fw, bbkt, bflip, 0, 0, ep_sq ⊻ 56)
     else
-        add ? _acc_sub!(acc.b, fw, 0, 0, fsq ⊻ 56)  : _acc_add!(acc.b, fw, 0, 0, fsq ⊻ 56)
-        add ? _acc_add!(acc.b, fw, 0, 0, tsq ⊻ 56)  : _acc_sub!(acc.b, fw, 0, 0, tsq ⊻ 56)
-        add ? _acc_sub!(acc.b, fw, 1, 0, ep_sq ⊻ 56) : _acc_add!(acc.b, fw, 1, 0, ep_sq ⊻ 56)
-        add ? _acc_sub!(acc.w, fw, 1, 0, fsq)        : _acc_add!(acc.w, fw, 1, 0, fsq)
-        add ? _acc_add!(acc.w, fw, 1, 0, tsq)        : _acc_sub!(acc.w, fw, 1, 0, tsq)
-        add ? _acc_sub!(acc.w, fw, 0, 0, ep_sq)      : _acc_add!(acc.w, fw, 0, 0, ep_sq)
+        add ? _acc_sub!(acc.b, fw, bbkt, bflip, 0, 0, fsq ⊻ 56)   : _acc_add!(acc.b, fw, bbkt, bflip, 0, 0, fsq ⊻ 56)
+        add ? _acc_add!(acc.b, fw, bbkt, bflip, 0, 0, tsq ⊻ 56)   : _acc_sub!(acc.b, fw, bbkt, bflip, 0, 0, tsq ⊻ 56)
+        add ? _acc_sub!(acc.b, fw, bbkt, bflip, 1, 0, ep_sq ⊻ 56) : _acc_add!(acc.b, fw, bbkt, bflip, 1, 0, ep_sq ⊻ 56)
+        add ? _acc_sub!(acc.w, fw, wbkt, wflip, 1, 0, fsq)         : _acc_add!(acc.w, fw, wbkt, wflip, 1, 0, fsq)
+        add ? _acc_add!(acc.w, fw, wbkt, wflip, 1, 0, tsq)         : _acc_sub!(acc.w, fw, wbkt, wflip, 1, 0, tsq)
+        add ? _acc_sub!(acc.w, fw, wbkt, wflip, 0, 0, ep_sq)       : _acc_add!(acc.w, fw, wbkt, wflip, 0, 0, ep_sq)
     end
 end
 
-@inline function _apply_castle!(acc::Accumulator, b::Board, m::UInt64, net::NNUENet, ::Val{add}) where {add}
-    fw = net.fw
-    fsq = _nnue_sq(from(m).val)
-    tsq = _nnue_sq(to(m).val)
-
-    from_rank = (from(m).val - 1) >> 3   # rank 0..7
-    to_file   = (to(m).val   - 1) & 7    # file 0..7
-    if to_file == 6  # kingside (king lands on G-file)
-        rfsq = from_rank * 8 + 7         # rook from H-file
-        rtsq = from_rank * 8 + 5         # rook to F-file
-    else             # queenside
-        rfsq = from_rank * 8             # rook from A-file
-        rtsq = from_rank * 8 + 3         # rook to D-file
-    end
-
-    if pcolor(pieceon(b, from(m))) == WHITE
-        add ? _acc_sub!(acc.w, fw, 0, 5, fsq)        : _acc_add!(acc.w, fw, 0, 5, fsq)
-        add ? _acc_add!(acc.w, fw, 0, 5, tsq)        : _acc_sub!(acc.w, fw, 0, 5, tsq)
-        add ? _acc_sub!(acc.b, fw, 1, 5, fsq ⊻ 56)  : _acc_add!(acc.b, fw, 1, 5, fsq ⊻ 56)
-        add ? _acc_add!(acc.b, fw, 1, 5, tsq ⊻ 56)  : _acc_sub!(acc.b, fw, 1, 5, tsq ⊻ 56)
-        add ? _acc_sub!(acc.w, fw, 0, 3, rfsq)       : _acc_add!(acc.w, fw, 0, 3, rfsq)
-        add ? _acc_add!(acc.w, fw, 0, 3, rtsq)       : _acc_sub!(acc.w, fw, 0, 3, rtsq)
-        add ? _acc_sub!(acc.b, fw, 1, 3, rfsq ⊻ 56) : _acc_add!(acc.b, fw, 1, 3, rfsq ⊻ 56)
-        add ? _acc_add!(acc.b, fw, 1, 3, rtsq ⊻ 56) : _acc_sub!(acc.b, fw, 1, 3, rtsq ⊻ 56)
-    else
-        add ? _acc_sub!(acc.b, fw, 0, 5, fsq ⊻ 56)  : _acc_add!(acc.b, fw, 0, 5, fsq ⊻ 56)
-        add ? _acc_add!(acc.b, fw, 0, 5, tsq ⊻ 56)  : _acc_sub!(acc.b, fw, 0, 5, tsq ⊻ 56)
-        add ? _acc_sub!(acc.w, fw, 1, 5, fsq)        : _acc_add!(acc.w, fw, 1, 5, fsq)
-        add ? _acc_add!(acc.w, fw, 1, 5, tsq)        : _acc_sub!(acc.w, fw, 1, 5, tsq)
-        add ? _acc_sub!(acc.b, fw, 0, 3, rfsq ⊻ 56) : _acc_add!(acc.b, fw, 0, 3, rfsq ⊻ 56)
-        add ? _acc_add!(acc.b, fw, 0, 3, rtsq ⊻ 56) : _acc_sub!(acc.b, fw, 0, 3, rtsq ⊻ 56)
-        add ? _acc_sub!(acc.w, fw, 1, 3, rfsq)       : _acc_add!(acc.w, fw, 1, 3, rfsq)
-        add ? _acc_add!(acc.w, fw, 1, 3, rtsq)       : _acc_sub!(acc.w, fw, 1, 3, rtsq)
-    end
-end
-
-@inline function _apply_promo!(acc::Accumulator, b::Board, m::UInt64, net::NNUENet, ::Val{add}) where {add}
-    fw       = net.fw
+@inline function _apply_promo!(acc::Accumulator, b::Board, m::UInt64, fw::Matrix{Int16},
+                                wbkt::Int, wflip::Int, bbkt::Int, bflip::Int, ::Val{add}) where {add}
     fsq      = _nnue_sq(from(m).val)
     tsq      = _nnue_sq(to(m).val)
     promo_pt = promotion(m).val - 1
 
     if pcolor(pieceon(b, from(m))) == WHITE
-        add ? _acc_sub!(acc.w, fw, 0, 0, fsq)              : _acc_add!(acc.w, fw, 0, 0, fsq)
-        add ? _acc_sub!(acc.b, fw, 1, 0, fsq ⊻ 56)        : _acc_add!(acc.b, fw, 1, 0, fsq ⊻ 56)
-        add ? _acc_add!(acc.w, fw, 0, promo_pt, tsq)       : _acc_sub!(acc.w, fw, 0, promo_pt, tsq)
-        add ? _acc_add!(acc.b, fw, 1, promo_pt, tsq ⊻ 56) : _acc_sub!(acc.b, fw, 1, promo_pt, tsq ⊻ 56)
+        add ? _acc_sub!(acc.w, fw, wbkt, wflip, 0, 0, fsq)               : _acc_add!(acc.w, fw, wbkt, wflip, 0, 0, fsq)
+        add ? _acc_sub!(acc.b, fw, bbkt, bflip, 1, 0, fsq ⊻ 56)         : _acc_add!(acc.b, fw, bbkt, bflip, 1, 0, fsq ⊻ 56)
+        add ? _acc_add!(acc.w, fw, wbkt, wflip, 0, promo_pt, tsq)        : _acc_sub!(acc.w, fw, wbkt, wflip, 0, promo_pt, tsq)
+        add ? _acc_add!(acc.b, fw, bbkt, bflip, 1, promo_pt, tsq ⊻ 56)  : _acc_sub!(acc.b, fw, bbkt, bflip, 1, promo_pt, tsq ⊻ 56)
         if moveiscapture(b, m)
             cp = ptype(pieceon(b, to(m))).val - 1
-            add ? _acc_sub!(acc.w, fw, 1, cp, tsq)        : _acc_add!(acc.w, fw, 1, cp, tsq)
-            add ? _acc_sub!(acc.b, fw, 0, cp, tsq ⊻ 56)  : _acc_add!(acc.b, fw, 0, cp, tsq ⊻ 56)
+            add ? _acc_sub!(acc.w, fw, wbkt, wflip, 1, cp, tsq)        : _acc_add!(acc.w, fw, wbkt, wflip, 1, cp, tsq)
+            add ? _acc_sub!(acc.b, fw, bbkt, bflip, 0, cp, tsq ⊻ 56)  : _acc_add!(acc.b, fw, bbkt, bflip, 0, cp, tsq ⊻ 56)
         end
     else
-        add ? _acc_sub!(acc.b, fw, 0, 0, fsq ⊻ 56)        : _acc_add!(acc.b, fw, 0, 0, fsq ⊻ 56)
-        add ? _acc_sub!(acc.w, fw, 1, 0, fsq)              : _acc_add!(acc.w, fw, 1, 0, fsq)
-        add ? _acc_add!(acc.b, fw, 0, promo_pt, tsq ⊻ 56) : _acc_sub!(acc.b, fw, 0, promo_pt, tsq ⊻ 56)
-        add ? _acc_add!(acc.w, fw, 1, promo_pt, tsq)       : _acc_sub!(acc.w, fw, 1, promo_pt, tsq)
+        add ? _acc_sub!(acc.b, fw, bbkt, bflip, 0, 0, fsq ⊻ 56)         : _acc_add!(acc.b, fw, bbkt, bflip, 0, 0, fsq ⊻ 56)
+        add ? _acc_sub!(acc.w, fw, wbkt, wflip, 1, 0, fsq)               : _acc_add!(acc.w, fw, wbkt, wflip, 1, 0, fsq)
+        add ? _acc_add!(acc.b, fw, bbkt, bflip, 0, promo_pt, tsq ⊻ 56)  : _acc_sub!(acc.b, fw, bbkt, bflip, 0, promo_pt, tsq ⊻ 56)
+        add ? _acc_add!(acc.w, fw, wbkt, wflip, 1, promo_pt, tsq)        : _acc_sub!(acc.w, fw, wbkt, wflip, 1, promo_pt, tsq)
         if moveiscapture(b, m)
             cp = ptype(pieceon(b, to(m))).val - 1
-            add ? _acc_sub!(acc.b, fw, 1, cp, tsq ⊻ 56)  : _acc_add!(acc.b, fw, 1, cp, tsq ⊻ 56)
-            add ? _acc_sub!(acc.w, fw, 0, cp, tsq)        : _acc_add!(acc.w, fw, 0, cp, tsq)
+            add ? _acc_sub!(acc.b, fw, bbkt, bflip, 1, cp, tsq ⊻ 56)  : _acc_add!(acc.b, fw, bbkt, bflip, 1, cp, tsq ⊻ 56)
+            add ? _acc_sub!(acc.w, fw, wbkt, wflip, 0, cp, tsq)        : _acc_add!(acc.w, fw, wbkt, wflip, 0, cp, tsq)
         end
     end
 end
 
-# Incremental update in place. Call BEFORE domove!(b, m).
+# Incremental update. Call BEFORE domove!(b, m).
+# King moves (including castling) set dirty flag; refresh! is deferred to nnue_eval.
 function update!(acc::Accumulator, b::Board, m::UInt64, net::NNUENet)
-    piece   = pieceon(b, from(m))
-    mflag   = Int((m >> 16) & 0xf)
-    is_ep   = mflag == 4
-    is_cast = ptype(piece) == KING && abs(((from(m).val - 1) & 7) - ((to(m).val - 1) & 7)) > 1
+    # king move (including castling) shifts the bucket, all feature offsets invalid;
+    # defer full recompute to nnue_eval, which has the post-move board
+    ptype(pieceon(b, from(m))) == KING && (acc.dirty = true; return)
 
-    if is_ep
-        _apply_ep!(acc, b, m, net, Val(true))
-    elseif is_cast
-        _apply_castle!(acc, b, m, net, Val(true))
+    # non-king move: bucket/flip are stable, read from stored king squares
+    wbkt  = _king_bucket(acc.wksq);       wflip = _king_flip(acc.wksq)
+    bbkt  = _king_bucket(acc.bksq ⊻ 56); bflip = _king_flip(acc.bksq)
+    fw    = net.fw
+    mflag = Int((m >> 16) & 0xf)
+
+    if mflag == 4
+        # en-passant
+        _apply_ep!(acc, b, m, fw, wbkt, wflip, bbkt, bflip, Val(true))
     elseif promotion(m) ≠ PieceType(0)
-        _apply_promo!(acc, b, m, net, Val(true))
+        # promotion
+        _apply_promo!(acc, b, m, fw, wbkt, wflip, bbkt, bflip, Val(true))
     else
-        _apply_move!(acc, b, m, net, Val(true))
+        _apply_move!(acc, b, m, fw, wbkt, wflip, bbkt, bflip, Val(true))
     end
 end
 
 # Reverse the update. Call AFTER undomove!(b, u) — board is back to pre-move state.
 function undo_update!(acc::Accumulator, b::Board, m::UInt64, net::NNUENet)
-    piece   = pieceon(b, from(m))
-    mflag   = Int((m >> 16) & 0xf)
-    is_ep   = mflag == 4
-    is_cast = ptype(piece) == KING && abs(((from(m).val - 1) & 7) - ((to(m).val - 1) & 7)) > 1
+    # king move: bucket may have changed; dirty forces refresh! with the now-restored board
+    ptype(pieceon(b, from(m))) == KING && (acc.dirty = true; return)
 
-    if is_ep
-        _apply_ep!(acc, b, m, net, Val(false))
-    elseif is_cast
-        _apply_castle!(acc, b, m, net, Val(false))
+    # bucket/flip unchanged for non-king moves; same values as when update! was called
+    wbkt  = _king_bucket(acc.wksq);       wflip = _king_flip(acc.wksq)
+    bbkt  = _king_bucket(acc.bksq ⊻ 56); bflip = _king_flip(acc.bksq)
+    fw    = net.fw
+    mflag = Int((m >> 16) & 0xf)
+
+    if mflag == 4
+        _apply_ep!(acc, b, m, fw, wbkt, wflip, bbkt, bflip, Val(false))
     elseif promotion(m) ≠ PieceType(0)
-        _apply_promo!(acc, b, m, net, Val(false))
+        _apply_promo!(acc, b, m, fw, wbkt, wflip, bbkt, bflip, Val(false))
     else
-        _apply_move!(acc, b, m, net, Val(false))
+        _apply_move!(acc, b, m, fw, wbkt, wflip, bbkt, bflip, Val(false))
     end
 end
 
-# Evaluate from a pre-built accumulator. Returns centipawns from side-to-move perspective.
+# Evaluate from accumulator. Lazy refresh on king moves. Returns centipawns (STM perspective).
 function nnue_eval(acc::Accumulator, b::Board, net::NNUENet)::Int
+    acc.dirty && refresh!(acc, b, net)
     us, them = sidetomove(b) == WHITE ? (acc.w, acc.b) : (acc.b, acc.w)
     bkt = _material_bucket(b)
     ow  = net.ow
