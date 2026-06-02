@@ -396,7 +396,7 @@ function quiescence(b::Board, α::Int, β::Int, ply::Int, key_history::Vector{UI
     j = 0
     for i in 1:cap_buf.count
         m = cap_buf.moves[i]
-        if moveiscapture(b, m)
+        if moveiscapture(b, m) || promotion(m) ≠ PieceType(0)
             j += 1
             cap_buf.moves[j] = m
         end
@@ -415,7 +415,7 @@ function quiescence(b::Board, α::Int, β::Int, ply::Int, key_history::Vector{UI
         search_stopped[] && break
 
         # Skip captures that lose material - they can't raise alpha from stand_pat.
-        see(b, m) < 0 && continue
+        promotion(m) == PieceType(0) && see(b, m) < 0 && continue
 
         update!(nnue_accs[tid], b, m, nnue_net)
         u  = domove!(b, m)
@@ -539,7 +539,7 @@ function negamax(
     # Mini-probcut: TT lower bound well above beta ⟹ prune
     if ply > 1 && (tt_flag == TT_LOWER || tt_flag == TT_EXACT) && tt_stored_depth ≥ depth - 4 &&
        tt_score ≥ β + 500 && abs(β) < MATE_SCORE - TT_MAX_PLY &&
-       abs(tt_score) < MATE_SCORE - TT_MAX_PLY && !is_singular
+       abs(tt_score) < MATE_SCORE - TT_MAX_PLY && !is_singular && !is_pv_node
         return β + 500
     end
 
@@ -618,7 +618,7 @@ function negamax(
         # Singular extension: if the TT move is clearly better than all others,
         # extend it by 1. Prevents recursive singular searches via excluded_move guard.
         ext = 0
-        if m == tt_best && !is_singular && ply > 1 && depth ≥ 6 && tt_flag ≠ TT_UPPER && ply ≤ 2 * _ROOT_DEPTH[tid] &&
+        if m == tt_best && !is_singular && ply > 1 && depth ≥ 5 && tt_flag ≠ TT_UPPER && ply ≤ 2 * _ROOT_DEPTH[tid] &&
             abs(tt_score) < MATE_SCORE - TT_MAX_PLY && tt_stored_depth ≥ depth - 3
 
             singular_β  = tt_score - 3 * depth 
