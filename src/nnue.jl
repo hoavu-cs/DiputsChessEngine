@@ -4,7 +4,8 @@ const NNUE_BUCKETS = 8
 const NNUE_SCALE   = 400
 const NNUE_QA      = 255
 const NNUE_QB      = 64
-const NNUE_IB      = 10   # king input buckets (ChessBucketsMirrored)
+const NNUE_IB           = 10   # king input buckets (ChessBucketsMirrored)
+const NNUE_FINNY_SLOTS  = 2 * NNUE_IB  # mirror (0/1) × bucket (0..9) = 20 slots per perspective
 
 # King bucket layout: 32 entries indexed by rank*4 + mirror_file
 # rank=0(rank1)..7(rank8), mirror_file = min(file, 7-file)
@@ -63,19 +64,41 @@ function _material_bucket(b::Board)::Int
     n ÷ cld(32, NNUE_BUCKETS) + 1
 end
 
-# Two NNUE_HL accumulators (white / black perspective) plus king state
+# Finny cache entry: one per (perspective × mirror × bucket) slot.
+# Caches an accumulator together with the piece bitboards used to build it.
+# On refresh, only the diff vs. the cached board state needs to be applied.
+mutable struct FinnyEntry
+    acc::Vector{Int32}   # NNUE_HL cached accumulator
+    bb::Vector{UInt64}   # 12 piece bitboards matching b.bb[1..12]
+    valid::Bool
+end
+FinnyEntry() = FinnyEntry(zeros(Int32, NNUE_HL), zeros(UInt64, 12), false)
+
+# Finny slot index (1-based, range 1..NNUE_FINNY_SLOTS=20)
+# White perspective: bucket from physical wksq, mirror from physical wksq file
+@inline _finny_slot_w(wksq::Int) =
+    ((wksq & 7) >= 4 ? NNUE_IB : 0) + _king_bucket(wksq) + 1
+
+# Black perspective: bucket from rank-flipped bksq, mirror from physical bksq file
+@inline _finny_slot_b(bksq::Int) =
+    ((bksq & 7) >= 4 ? NNUE_IB : 0) + _king_bucket(bksq ⊻ 56) + 1
+
+# Two NNUE_HL accumulators (white / black perspective) plus king state and Finny caches
 mutable struct Accumulator
     w::Vector{Int32}
     b::Vector{Int32}
-    wksq::Int   # white king std 0-based square
-    bksq::Int   # black king std 0-based square
-    dirty::Bool # true ⟹ needs refresh! before eval
+    wksq::Int    # white king std 0-based square
+    bksq::Int    # black king std 0-based square
+    dirty::Bool  # true ⟹ needs refresh! before eval
+    finny_w::Vector{FinnyEntry}   # NNUE_FINNY_SLOTS entries for white perspective
+    finny_b::Vector{FinnyEntry}   # NNUE_FINNY_SLOTS entries for black perspective
 end
 
 Accumulator() = Accumulator(
     zeros(Int32, NNUE_HL), zeros(Int32, NNUE_HL),
-    4, 60,   # e1, e8 (starting squares: overwritten on first refresh!)
-    true
+    4, 60, true,
+    [FinnyEntry() for _ in 1:NNUE_FINNY_SLOTS],
+    [FinnyEntry() for _ in 1:NNUE_FINNY_SLOTS],
 )
 
 # sq.val is 1-indexed (A1=1 … H8=64); 0-based standard (A1=0 … H8=63)
@@ -99,28 +122,60 @@ end
     end
 end
 
-# Full accumulator recomputation from board position
+# Finny table
+# Diffs b.bb vs entry.bb, applies only the changed pieces, then copies to dst.
+# black_pov=true  ⟹ rank-flip squares (⊻56) and swap own/opp sides.
+# On first call, entry.bb is all zeros, so diff = full board.
+function _refresh_finny!(dst::Vector{Int32}, fw::Matrix{Int16}, fb::Vector{Int16},
+                         entry::FinnyEntry, bkt::Int, flip::Int, b::Board, black_pov::Bool)
+    if !entry.valid
+        @inbounds for i in 1:NNUE_HL; entry.acc[i] = Int32(fb[i]); end
+        entry.valid = true
+    end
+
+    for (pt_jl, pt) in ((PAWN,0),(KNIGHT,1),(BISHOP,2),(ROOK,3),(QUEEN,4),(KING,5))
+        # white pieces (bb index pt_jl): own=0 for white pov, opp=1 for black pov
+        let side = black_pov ? 1 : 0
+            δa = b.bb[pt_jl]     & ~entry.bb[pt_jl]
+            δr = entry.bb[pt_jl] & ~b.bb[pt_jl]
+            entry.bb[pt_jl] = b.bb[pt_jl]
+            while δa != 0
+                sq = Int(trailing_zeros(δa)); δa &= δa - 1
+                _acc_add!(entry.acc, fw, bkt, flip, side, pt, black_pov ? sq ⊻ 56 : sq)
+            end
+            while δr != 0
+                sq = Int(trailing_zeros(δr)); δr &= δr - 1
+                _acc_sub!(entry.acc, fw, bkt, flip, side, pt, black_pov ? sq ⊻ 56 : sq)
+            end
+        end
+        # black pieces (bb index pt_jl+6): opp=1 for white pov, own=0 for black pov
+        let side = black_pov ? 0 : 1
+            δa = b.bb[pt_jl+6]     & ~entry.bb[pt_jl+6]
+            δr = entry.bb[pt_jl+6] & ~b.bb[pt_jl+6]
+            entry.bb[pt_jl+6] = b.bb[pt_jl+6]
+            while δa != 0
+                sq = Int(trailing_zeros(δa)); δa &= δa - 1
+                _acc_add!(entry.acc, fw, bkt, flip, side, pt, black_pov ? sq ⊻ 56 : sq)
+            end
+            while δr != 0
+                sq = Int(trailing_zeros(δr)); δr &= δr - 1
+                _acc_sub!(entry.acc, fw, bkt, flip, side, pt, black_pov ? sq ⊻ 56 : sq)
+            end
+        end
+    end
+    copyto!(dst, entry.acc)
+end
+
+# Refresh both perspectives via the Finny cache. Called on king moves and at search root.
 function refresh!(acc::Accumulator, b::Board, net::NNUENet)
     wksq  = Int(trailing_zeros(b.bb[BB_WK]))
     bksq  = Int(trailing_zeros(b.bb[BB_BK]))
     wbkt  = _king_bucket(wksq);       wflip = _king_flip(wksq)
     bbkt  = _king_bucket(bksq ⊻ 56); bflip = _king_flip(bksq)
-    fw = net.fw
-    @inbounds for i in 1:NNUE_HL
-        acc.w[i] = acc.b[i] = Int32(net.fb[i])
-    end
-    for (pt_jl, pt) in ((PAWN,0),(KNIGHT,1),(BISHOP,2),(ROOK,3),(QUEEN,4),(KING,5))
-        for sq in pieces(b, WHITE, pt_jl)
-            std = _nnue_sq(sq.val)
-            _acc_add!(acc.w, fw, wbkt, wflip, 0, pt, std)
-            _acc_add!(acc.b, fw, bbkt, bflip, 1, pt, std ⊻ 56)
-        end
-        for sq in pieces(b, BLACK, pt_jl)
-            std = _nnue_sq(sq.val)
-            _acc_add!(acc.b, fw, bbkt, bflip, 0, pt, std ⊻ 56)
-            _acc_add!(acc.w, fw, wbkt, wflip, 1, pt, std)
-        end
-    end
+    wslot = _finny_slot_w(wksq)
+    bslot = _finny_slot_b(bksq)
+    _refresh_finny!(acc.w, net.fw, net.fb, acc.finny_w[wslot], wbkt, wflip, b, false)
+    _refresh_finny!(acc.b, net.fw, net.fb, acc.finny_b[bslot], bbkt, bflip, b, true)
     acc.wksq  = wksq
     acc.bksq  = bksq
     acc.dirty = false
