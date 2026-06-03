@@ -618,7 +618,7 @@ function negamax(
         # Singular extension: if the TT move is clearly better than all others,
         # extend it by 1. Prevents recursive singular searches via excluded_move guard.
         ext = 0
-        if m == tt_best && !is_singular && ply > 1 && depth ≥ 6 && tt_flag ≠ TT_UPPER && ply ≤ 2 * _ROOT_DEPTH[tid] &&
+        if m == tt_best && !is_singular && ply > 1 && depth ≥ 5 && tt_flag ≠ TT_UPPER && ply ≤ 2 * _ROOT_DEPTH[tid] &&
             abs(tt_score) < MATE_SCORE - TT_MAX_PLY && tt_stored_depth ≥ depth - 3
 
             singular_β  = tt_score - 3 * depth 
