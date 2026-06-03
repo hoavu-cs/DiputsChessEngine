@@ -333,7 +333,7 @@ const _SCORE_BAD_CAPTURE =  -100_000   # bad captures (SEE < 0): below all quiet
     ch  = prev_pt  > 0 ? @inbounds(Int(cont_hist[to(m).val,  cur_pt, prev_to,  prev_pt,  color, tid])) : 0
     ch2 = prev2_pt > 0 ? @inbounds(Int(cont_hist2[to(m).val, cur_pt, prev2_to, prev2_pt, color, tid])) : 0
     ph  = pawn_hist_score(b, cur_pt, to(m).val)
-    return @inbounds(history[color, from(m).val, to(m).val, tid]) + (ch * 550 ÷ 1000) + (ch2 * 600 ÷ 1000) + (ph * 550 ÷ 1000)
+    return @inbounds(history[color, from(m).val, to(m).val, tid]) + (ch * 1000 ÷ 1000) + (ch2 * 1000 ÷ 1000) + (ph * 425 ÷ 1000)
 end
 
 function sort_moves!(
@@ -546,7 +546,7 @@ function negamax(
     # Reverse futility pruning (multiplier interpolated 120→175 over depths 1–7)
     if depth ≤ 7 && !in_check && !is_pv_node && !is_singular
         rfp_mult = (140, 145, 155, 160, 165, 175, 200)[depth]
-        if eval ≥ β + rfp_mult * depth - 85 * improving && tt_best == Move(0)
+        if eval ≥ β + rfp_mult * depth - 90 * improving && tt_best == Move(0)
             return (eval + β) ÷ 2
         end
     end
@@ -618,7 +618,7 @@ function negamax(
         # Singular extension: if the TT move is clearly better than all others,
         # extend it by 1. Prevents recursive singular searches via excluded_move guard.
         ext = 0
-        if m == tt_best && !is_singular && ply > 1 && depth ≥ 5 && tt_flag ≠ TT_UPPER && ply ≤ 2 * _ROOT_DEPTH[tid] &&
+        if m == tt_best && !is_singular && ply > 1 && depth ≥ 6 && tt_flag ≠ TT_UPPER && ply ≤ 2 * _ROOT_DEPTH[tid] &&
             abs(tt_score) < MATE_SCORE - TT_MAX_PLY && tt_stored_depth ≥ depth - 3
 
             singular_β  = tt_score - 3 * depth 
