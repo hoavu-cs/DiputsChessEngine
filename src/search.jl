@@ -515,7 +515,7 @@ function negamax(
     end
 
     # Internal iterative reduction (skip at AllNodes)
-    depth -= (tt_best == Move(0) && depth ≥ 3 && (is_pv_node || is_cut_node)) && (ply > 1) ? 1 : 0
+    depth -= (tt_best == Move(0) && depth ≥ 2 && (is_pv_node || is_cut_node)) && (ply > 1) ? 1 : 0
 
     # Raw NNUE eval
     raw_eval = nnue_eval(nnue_accs[tid], b, nnue_net)
