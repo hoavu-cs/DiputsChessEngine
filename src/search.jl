@@ -476,8 +476,9 @@ function negamax(
 
     if ply > 1
         cnt = 0
-        for k in key_history
-            k == b.key && (cnt += 1)
+        start = max(1, length(key_history) - b.halfmove_clock)
+        for i in start:length(key_history)
+            @inbounds key_history[i] == b.key && (cnt += 1)
             cnt ≥ 2 && return 0
         end
         isdraw(b) && return 0
@@ -569,7 +570,7 @@ function negamax(
             has_piece && break
         end
         if has_piece
-            R = min(4 + div(depth, 3), depth - 1)
+            R = min(4 + (depth ÷ 3), depth - 1)
             u = donullmove!(b)
             move_stack[ply, tid] = (0, 0)
             sc = -negamax(CutNode, b, depth - 1 - R, -β, -β + 1, ply + 1, key_history, tid)
