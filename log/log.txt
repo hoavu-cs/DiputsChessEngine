@@ -1,6 +1,106 @@
 === SPRT Results Log ===
 
 
+da8bb07 — Change 3 to 2 (IIR depth threshold)
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (15+0.15, NULL, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 9.14 +/- 7.86, nElo: 16.18 +/- 13.91
+LOS: 98.87 %, DrawRatio: 49.00 %, PairsRatio: 1.15
+Games: 2396, Wins: 656, Losses: 593, Draws: 1147, Points: 1229.5 (51.31 %)
+Ptnml(0-2): [16, 268, 587, 291, 36], WL/DD Ratio: 1.00
+LLR: 2.23 (101.3%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
+ed74919 — Only check for repetition from 50-move clock plies ago [FAILED]
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (8+0.08, NULL, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 1.39 +/- 12.61, nElo: 2.37 +/- 21.51
+LOS: 58.54 %, DrawRatio: 46.31 %, PairsRatio: 0.98
+Games: 1002, Wins: 278, Losses: 274, Draws: 450, Points: 503.0 (50.20 %)
+Ptnml(0-2): [9, 127, 232, 117, 16], WL/DD Ratio: 1.25
+LLR: -0.22 (-10.0%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
+4ed87f4 — Quick 1000 game tuning
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (10+0.1, NULL, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 12.32 +/- 9.97, nElo: 19.81 +/- 16.02
+LOS: 99.23 %, DrawRatio: 45.18 %, PairsRatio: 1.23
+Games: 1806, Wins: 519, Losses: 455, Draws: 832, Points: 935.0 (51.77 %)
+Ptnml(0-2): [28, 194, 408, 232, 41], WL/DD Ratio: 1.01
+LLR: 2.21 (100.5%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
+b462904 — Add finny table
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (15+0.15, NULL, 64MB, UHO_Lichess_4852_v1.epd):
+Elo: 15.03 +/- 11.62, nElo: 22.95 +/- 17.70
+LOS: 99.45 %, DrawRatio: 44.32 %, PairsRatio: 1.23
+Games: 1480, Wins: 458, Losses: 394, Draws: 628, Points: 772.0 (52.16 %)
+Ptnml(0-2): [27, 158, 328, 178, 49], WL/DD Ratio: 1.25
+LLR: 2.20 (100.1%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
+059645b — Simplify
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (12+0.12, NULL, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 6.32 +/- 5.89, nElo: 10.50 +/- 9.79
+LOS: 98.22 %, DrawRatio: 45.29 %, PairsRatio: 1.11
+Games: 4840, Wins: 1353, Losses: 1265, Draws: 2222, Points: 2464.0 (50.91 %)
+Ptnml(0-2): [63, 564, 1096, 616, 81], WL/DD Ratio: 1.10
+LLR: 2.20 (100.3%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
+472112d — Change 3 to 4 (singular double margin)
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (15+0.15, NULL, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 12.28 +/- 9.72, nElo: 21.07 +/- 16.66
+LOS: 99.34 %, DrawRatio: 48.14 %, PairsRatio: 1.24
+Games: 1670, Wins: 451, Losses: 392, Draws: 827, Points: 864.5 (51.77 %)
+Ptnml(0-2): [17, 176, 402, 211, 29], WL/DD Ratio: 0.83
+LLR: 2.22 (101.0%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
+6237872 — Tune continuation history weight
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (8+0.08, NULL, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 23.46 +/- 14.78, nElo: 38.71 +/- 24.29
+LOS: 99.91 %, DrawRatio: 44.02 %, PairsRatio: 1.42
+Games: 786, Wins: 236, Losses: 183, Draws: 367, Points: 419.5 (53.37 %)
+Ptnml(0-2): [5, 86, 173, 109, 20], WL/DD Ratio: 1.01
+LLR: 2.20 (100.1%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
+1ed8155 — Simplify
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (15+0.15, NULL, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 10.91 +/- 8.89, nElo: 19.11 +/- 15.57
+LOS: 99.19 %, DrawRatio: 48.95 %, PairsRatio: 1.22
+Games: 1912, Wins: 529, Losses: 469, Draws: 914, Points: 986.0 (51.57 %)
+Ptnml(0-2): [17, 203, 468, 239, 29], WL/DD Ratio: 0.98
+LLR: 2.23 (101.6%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
+018b2d7 — Change 6 to 3 (NMP eval max)
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (12+0.12, NULL, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 19.13 +/- 12.84, nElo: 32.16 +/- 21.53
+LOS: 99.83 %, DrawRatio: 43.20 %, PairsRatio: 1.39
+Games: 1000, Wins: 289, Losses: 234, Draws: 477, Points: 527.5 (52.75 %)
+Ptnml(0-2): [8, 111, 216, 148, 17], WL/DD Ratio: 0.98
+LLR: 2.24 (101.7%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
+088066d — Change razoring threshold at depth 1
+--------------------------------------------------
+Results of DIPUTEXP vs Diputs (12+0.12, NULL, 256MB, UHO_Lichess_4852_v1.epd):
+Elo: 7.71 +/- 6.91, nElo: 12.82 +/- 11.48
+LOS: 98.57 %, DrawRatio: 46.99 %, PairsRatio: 1.16
+Games: 3516, Wins: 980, Losses: 902, Draws: 1634, Points: 1797.0 (51.11 %)
+Ptnml(0-2): [52, 380, 826, 438, 62], WL/DD Ratio: 1.02
+LLR: 2.27 (103.5%) (-2.20, 2.20) [0.00, 10.00]
+--------------------------------------------------
+
 41d52f5 — Share pawn correction history among threads
 --------------------------------------------------
 Results of DIPUTEXP vs Diputs (8+0.08, NULL, 256MB, UHO_Lichess_4852_v1.epd):
