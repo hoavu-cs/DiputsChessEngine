@@ -660,6 +660,7 @@ function negamax(
             is_capture      && (R = max(1, R - 1))
             NT === AllNode  && (R += 1)
             NT === CutNode  && (R += 1)
+            (promotion(m) ≠ PieceType(0)) && (R = max(1, R - 1))
             if !is_pv_node && ply ≥ 5 &&
                 eval < eval_stack[ply - 2, tid] < eval_stack[ply - 4, tid]
                 R += 1
