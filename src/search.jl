@@ -665,6 +665,15 @@ function negamax(
                 eval < eval_stack[ply - 2, tid] < eval_stack[ply - 4, tid]
                 R += 1
             end
+
+            # Reduce more with low continuation history
+            if is_quiet && ply ≥ 3
+                prev_pt,  prev_to  = move_stack[ply - 1, tid]
+                prev2_pt, prev2_to = move_stack[ply - 2, tid]
+                ch  = prev_pt  > 0 ? Int(cont_hist[to(m).val, cur_pt, prev_to,  prev_pt,  stm, tid]) : 0
+                ch2 = prev2_pt > 0 ? Int(cont_hist2[to(m).val, cur_pt, prev2_to, prev2_pt, stm, tid]) : 0
+                (ch + ch2) < -1000 && (R += 1)
+            end
             R = min(R, depth - 1)
         else
             R = 0
