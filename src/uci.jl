@@ -64,7 +64,7 @@ function process_position(command::String)
         return
     end
 
-    global game_key_history = UInt64[board.key]
+    global game_key_history = sizehint!(UInt64[board.key], 512)
 
     if idx ≤ length(tokens) && tokens[idx] == "moves"
         idx += 1
@@ -181,6 +181,53 @@ function process_stop()
 end
 
 # ============================================================
+# Bench crap
+# ============================================================
+
+const _BENCH_POSITIONS = [
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+    "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
+    "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1",
+    "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
+    "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10",
+    "2r5/3pk3/8/1P6/2K5/8/8/8 w - - 5 4",
+    "rnbqkb1r/pp1p1ppp/2p5/4P3/2B5/8/PPP1NnPP/RNBQK2R w KQkq - 0 6",
+    "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+    "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3",
+    "r1bqk2r/ppp2ppp/2np1n2/2b1p3/2B1P3/2NP1N2/PPP2PPP/R1BQK2R w KQkq - 0 6",
+    "r2q1rk1/ppp2ppp/2n1bn2/3pp3/1bBPP3/2N1BN2/PPP2PPP/R2QR1K1 w - - 4 9",
+    "r4rk1/pp3ppp/1qp1bn2/3p4/3P4/1QN1BN2/PP3PPP/R4RK1 w - - 2 14",
+    "8/8/1p6/3b4/1P1k4/3B4/8/4K3 b - - 0 1",
+    "8/8/7p/3KNN1k/2p4p/8/3P2p1/8 w - - 0 1",
+    "3k4/3p4/8/K1P4r/8/8/8/8 b - - 0 1",
+    "8/8/4k3/8/2p5/8/B2P4/4K3 w - - 0 1",
+    "8/k7/3p4/p2P1p2/P2P1P2/8/8/K7 w - - 0 1",
+    "n1n5/PPPk4/8/8/8/8/4Kppp/5N1N b - - 0 1",
+    "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1",
+]
+
+function run_bench(depth::Int)
+    total_nodes = 0
+    t0 = time_ns()
+    for fen in _BENCH_POSITIONS
+        b = from_fen(fen)
+        clear_tt()
+        clear_history()
+        search_stopped[] = false
+        smp_search(b, depth, typemax(Int), typemax(Int))
+        nodes = sum(_NODE_COUNT)
+        total_nodes += nodes
+        println("info string $(fen[1:min(40,end)])... nodes $nodes")
+        flush(stdout)
+    end
+    elapsed_ms = (time_ns() - t0) ÷ 1_000_000
+    nps = elapsed_ms > 0 ? total_nodes * 1000 ÷ elapsed_ms : 0
+    println("$total_nodes nodes $(nps) nps")
+    flush(stdout)
+end
+
+# ============================================================
 # UCI Loop
 # ============================================================
 
@@ -216,6 +263,10 @@ function uci_loop()
                 process_go(String.(split(line)))
             elseif line == "stop"
                 process_stop()
+            elseif startswith(line, "bench")
+                tokens = split(line)
+                depth = length(tokens) ≥ 2 ? parse(Int, tokens[2]) : 12
+                run_bench(depth)
             elseif line == "quit"
                 search_stopped[] = true
                 break
