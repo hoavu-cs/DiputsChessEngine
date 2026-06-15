@@ -23,15 +23,12 @@ const _ROOT_DEPTH    = fill(0, _N_THREADS)
 # Transposition Table (shared)
 # ============================================================
 
-const _QS_PIECE_VAL = (100, 300, 300, 500, 900, 20000)
-
 const TT_EXACT   = Int8(0)
 const TT_LOWER   = Int8(1)
 const TT_UPPER   = Int8(2)
 const TT_EMPTY   = Int8(-1)
 const TT_MAX_PLY = 256
 const DEPTH_QS   = -1
-
 
 struct TTEntry
     key::UInt64
@@ -317,7 +314,7 @@ const _SCORE_BAD_CAPTURE =  -100_000   # bad captures (SEE < 0): below all quiet
 
     if moveiscapture(b, m)
         see_val = see(b, m)
-        pc      = Int(b.pieces[from(m).val])            # moving piece 1..12
+        pc      = Int(b.pieces[from(m).val])            
         cap_pt  = max(1, ptype(pieceon(b, to(m))).val)   # 0 on en passant → treat as pawn
         ch      = @inbounds Int(cap_hist[pc, to(m).val, cap_pt, tid]) * _SEE_VAL[QUEEN] ÷ Γ
         return see_val ≥ 0 ? _SCORE_CAPTURE + see_val + ch : _SCORE_BAD_CAPTURE + see_val + ch
@@ -515,7 +512,7 @@ function negamax(
     end
 
     # Internal iterative reduction (skip at AllNodes)
-    depth -= (tt_best == Move(0) && depth ≥ 2 && (is_pv_node || is_cut_node)) && (ply > 1) ? 1 : 0
+    depth -= (tt_best == Move(0) && depth ≥ 3 && (is_pv_node || is_cut_node)) && (ply > 1) ? 1 : 0
 
     # Raw NNUE eval
     raw_eval = nnue_eval(nnue_accs[tid], b, nnue_net)
@@ -610,9 +607,13 @@ function negamax(
         end
 
         # SEE pruning + cache for LMR tweak below.
-        see_val = (!in_check && !is_pv_node && !is_singular) ? see(b, m) : 0
-        if depth ≤ 8 && !in_check && !is_pv_node && !is_singular
+        see_val       = (!in_check && !is_pv_node && !is_singular) ? see(b, m) : 0
+        see_threshold = 0
+        if !in_check && !is_pv_node && !is_singular
             see_threshold = is_capture ? -45 * depth : -80 * depth * depth
+        end
+        
+        if depth ≤ 8 && !in_check && !is_pv_node && !is_singular
             see_val < see_threshold && continue
         end
 
@@ -673,6 +674,11 @@ function negamax(
                 ch  = prev_pt  > 0 ? Int(cont_hist[to(m).val, cur_pt, prev_to,  prev_pt,  stm, tid]) : 0
                 ch2 = prev2_pt > 0 ? Int(cont_hist2[to(m).val, cur_pt, prev2_to, prev2_pt, stm, tid]) : 0
                 (ch + ch2) < -1000 && (R += 1)
+            end
+
+            # Reduce more for moves that nearly failed SEE pruning
+            if see_threshold != 0 && see_val < see_threshold ÷ 3 
+                R += 1
             end
             R = min(R, depth - 1)
         else
