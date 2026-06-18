@@ -92,7 +92,7 @@ MoveList(N = 256) = MoveList(Vector{UInt64}(undef, N), 0)
 """
 @inline function push_move!(ml::MoveList, from::Int, to::Int, promo::Int, flag::Int)
     ml.count += 1
-    ml.moves[ml.count] = UInt64(from) | (UInt64(to) << 6) | (UInt64(promo) << 12) | (UInt64(flag) << 16)
+    @inbounds ml.moves[ml.count] = UInt64(from) | (UInt64(to) << 6) | (UInt64(promo) << 12) | (UInt64(flag) << 16)
 end
 
 # ============================================================
@@ -163,6 +163,7 @@ end
 # Generate pseudo-legal moves for pawns
 @inline function gen_pawn!(ml::MoveList, pos::Board, from::Int,
                             color::Int, their_bb::UInt64)
+    @inbounds begin
     n = from + 1  # Julia arrays are 1-indexed, squares are 0-indexed
 
     # Pushes
@@ -207,11 +208,12 @@ end
     pos.ep_square < 64 || return                                    # no ep square set -> done
     PAWN_ATTACKS[color+1][n] & bit(pos.ep_square) == 0 && return    # ep square not attacked
     push_move!(ml, from, pos.ep_square, 0, 4)                       # flag=4 -> en passant
+    end
 end
 
 # Generate pseudo-legal moves for knights
 @inline function gen_knight!(ml::MoveList, from::Int, our_bb::UInt64)
-    targets = KNIGHT_ATTACKS[from + 1] & ~our_bb
+    targets = @inbounds KNIGHT_ATTACKS[from + 1] & ~our_bb
     while targets ≠ 0
         to, targets = poplsb!(targets)
         push_move!(ml, from, to, 0, 0)
@@ -376,6 +378,7 @@ const _BQ_PATH = bit(57) | bit(58) | bit(59)        # B8, C8, D8
 
 # Check if a square is attacked by the opponent
 @inline function is_attacked(pos::Board, s::Int, by::Int)
+    @inbounds begin
     bb  = pos.bb
     occ = pos.occupied
     if by == 0
@@ -392,11 +395,13 @@ const _BQ_PATH = bit(57) | bit(58) | bit(59)        # B8, C8, D8
         (rook_attacks(s, occ)   & (bb[BB_BR] | bb[BB_BQ])) ≠ 0 && return true
     end
     return false
+    end
 end
 
 # After domove!, check if the side that just moved left its king in check.
 # b.stm has already flipped, so the moving side is 1 - b.stm.
 @inline function was_illegal(b::Board)::Bool
+    @inbounds begin
     c        = 1 - b.stm
     king_idx = c == 0 ? BB_WK : BB_BK
     king_bb  = b.bb[king_idx]
@@ -404,13 +409,14 @@ end
     # Reject king captures: if the side now to move has no king, we just captured it
     opp_king_idx = b.stm == 0 ? BB_WK : BB_BK
     b.bb[opp_king_idx] == 0 && return true
+    end
     king_sq = poplsb(king_bb)
     return is_attacked(b, king_sq, b.stm)
 end
 
 # Generate pseudo-legal moves for king
 @inline function gen_king!(ml::MoveList, pos::Board, from::Int, color::Int, our_bb::UInt64)
-    targets = KING_ATTACKS[from + 1] & ~our_bb
+    targets = @inbounds KING_ATTACKS[from + 1] & ~our_bb
     while targets ≠ 0
         to, targets = poplsb!(targets)
         push_move!(ml, from, to, 0, 0)
@@ -419,6 +425,7 @@ end
     occ = pos.occupied
     opp = 1 - color
 
+    @inbounds begin
     if color == 0
         from == 4   || return
         !is_attacked(pos, 4, opp)  || return
@@ -437,6 +444,7 @@ end
         (pos.castle_rights & 8) ≠ 0 && (occ & _BQ_PATH) == 0 &&
             (pos.bb[BB_BR] & bit(56)) ≠ 0 &&
             !is_attacked(pos, 59, opp) && !is_attacked(pos, 58, opp) && push_move!(ml, 60, 58, 0, 3)
+    end
     end
 end
 
@@ -462,6 +470,7 @@ end
 
 function generate_moves!(ml::MoveList, pos::Board)
     ml.count = 0
+    @inbounds begin
     bb    = pos.bb
     c     = pos.stm
     base  = c * 6
@@ -489,6 +498,7 @@ function generate_moves!(ml::MoveList, pos::Board)
 
     pcs = bb[base + 6]
     while pcs ≠ 0; from, pcs = poplsb!(pcs); gen_king!(ml, pos, from, c, our); end
+    end
 end
 
 function generate_moves(pos::Board)::MoveList
@@ -528,9 +538,11 @@ function isdraw(pos::Board)::Bool
 end
 
 @inline function ischeck(pos::Board)::Bool
+    @inbounds begin
     king_idx = pos.stm == 0 ? BB_WK : BB_BK
     king_bb  = pos.bb[king_idx]
     king_bb  == 0 && return false
+    end
     king_sq  = poplsb(king_bb)
     return is_attacked(pos, king_sq, 1 - pos.stm)
 end
@@ -586,6 +598,8 @@ function domove!(pos::Board, move::UInt64)::UndoInfo
     c    = pos.stm
     opp  = 1 - c
     base = c * 6       
+
+    @inbounds begin
 
     src_bb = bit(from)
     dst_bb = bit(to)
@@ -697,6 +711,7 @@ function domove!(pos::Board, move::UInt64)::UndoInfo
     pos.stm      = opp
     pos.key      = k
 
+    end
     return undo
 end
 
@@ -732,6 +747,8 @@ function undomove!(pos::Board, u::UndoInfo)
     c    = pos.stm
     opp  = 1 - c
     base = c * 6
+
+    @inbounds begin
 
     src_bb = bit(from)
     dst_bb = bit(to)
@@ -803,6 +820,7 @@ function undomove!(pos::Board, u::UndoInfo)
     end
     pos.occupied = pos.white_bb | pos.black_bb
     pos.empty    = ~pos.occupied
+    end
     return nothing
 end
 
@@ -841,7 +859,7 @@ end
 sidetomove(b::Board) = b.stm   # returns WHITE(0) or BLACK(1)
 
 # Piece on a square (sq.val is 1-indexed)
-pieceon(b::Board, sq::Square) = Piece(b.pieces[sq.val])
+pieceon(b::Board, sq::Square) = @inbounds Piece(b.pieces[sq.val])
 
 # Piece type 1-6 from a Piece (works for both colors; bb index mod 6)
 ptype(p::Piece)  = PieceType(p.val == 0 ? 0 : ((p.val - 1) % 6) + 1)
@@ -951,6 +969,7 @@ const _SEE_VAL = (100, 320, 330, 500, 900, 20000, 0)  # [P, N, B, R, Q, K, none]
 # All pieces (both colors) that attack square `s` given occupancy `occ`.
 # Sliding attacks are recomputed with magic bitboards; non-sliders use precomputed tables.
 @inline function attacks_to(pos::Board, s::Int, occ::UInt64)::UInt64
+    @inbounds begin
     bb  = pos.bb                                   # 12 bitboards, [BB_WP..BB_BK]
     fr, rr = file(s), rank(s)
     atk = UInt64(0)
@@ -970,12 +989,14 @@ const _SEE_VAL = (100, 320, 330, 500, 900, 20000, 0)  # [P, N, B, R, Q, K, none]
     atk |= bishop_attacks(s, occ) & (bb[BB_WB] | bb[BB_BB] | bb[BB_WQ] | bb[BB_BQ])
     atk |= rook_attacks(s, occ)   & (bb[BB_WR] | bb[BB_BR] | bb[BB_WQ] | bb[BB_BQ])
     return atk
+    end
 end
 
 
 # Recursive SEE: Returns the net material gain (centipawns) for `side` if it captures
 function see_rec(pos::Board, occ::UInt64, to::Int, side::Int, captured_val::Int,
                  attackers::UInt64, bishops_queens::UInt64, rooks_queens::UInt64)::Int
+    @inbounds begin
 
     attackers &= occ                             # filter to pieces still on board
     side_attackers = attackers & (side == 0 ? pos.white_bb : pos.black_bb)
@@ -1014,6 +1035,7 @@ function see_rec(pos::Board, occ::UInt64, to::Int, side::Int, captured_val::Int,
     # capture only if net positive; opponent then recaptures our lva_val
     return max(0, captured_val - see_rec(pos, new_occ, to, side ⊻ 1, lva_val,
                                           new_attackers, bishops_queens, rooks_queens))
+    end
 end
 
 # Public SEE entry point.
@@ -1026,6 +1048,7 @@ end
     flag = Int((m >> 16) & 0xf)
     promo = Int((m >> 12) & 0xf)
 
+    @inbounds begin
     cap_idx    = pos.pieces[to_s + 1]
     target_val = cap_idx == 0 ? 0 : _SEE_VAL[((cap_idx - 1) % 6) + 1]
     flag == 4 && (target_val = _SEE_VAL[PAWN])   # en passant: pawn not on to_s
@@ -1044,6 +1067,7 @@ end
 
     bq = pos.bb[BB_WB] | pos.bb[BB_BB] | pos.bb[BB_WQ] | pos.bb[BB_BQ]
     rq = pos.bb[BB_WR] | pos.bb[BB_BR] | pos.bb[BB_WQ] | pos.bb[BB_BQ]
+    end
 
     return target_val - see_rec(pos, occ, to_s, pos.stm ⊻ 1, our_val,
                                 attacks_to(pos, to_s, occ), bq, rq)

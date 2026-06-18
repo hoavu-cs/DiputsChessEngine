@@ -65,6 +65,7 @@ function resize_tt(mb::Int)
 end
 
 @inline function probe_tt(key::UInt64, depth::Int, ply::Int)
+    @inbounds begin
     idx = Int(key & tt_mask) + 1
     entry = tt[idx]
     (entry.flag == TT_EMPTY || entry.key ≠ key) && return (false, 0, TT_EMPTY, false, Move(0), -1)
@@ -72,16 +73,19 @@ end
     if abs(score) > MATE_SCORE - TT_MAX_PLY
         score += score > 0 ? -ply : ply
     end
+    end
     return (entry.depth ≥ depth, score, entry.flag, entry.is_pv, entry.best, Int(entry.depth))
 end
 
 @inline function store_tt(key::UInt64, depth::Int, score::Int, flag::Int8, is_pv::Bool, best::UInt64, ply::Int)
+    @inbounds begin
     idx    = Int(key & tt_mask) + 1
     stored = score
     if abs(score) > MATE_SCORE - TT_MAX_PLY
         stored = score + (score > 0 ? ply : -ply)
     end
     tt[idx] = TTEntry(key, Int32(depth), Int32(stored), flag, is_pv, best)
+    end
 end
 
 init_tt()
@@ -106,10 +110,13 @@ end
 init_lmr_table!()
 
 const _MAX_BUF_PLY = 512
-# Pre-allocated per-thread, per-ply move buffers - eliminates ~2KB alloc per node
 const _MOVE_BUFS = [[MoveList() for _ in 1:_MAX_BUF_PLY] for _ in 1:_N_THREADS]
-# Separate buffers for singular searches to avoid clobbering the outer node's move list
 const _SING_BUFS = [[MoveList() for _ in 1:_MAX_BUF_PLY] for _ in 1:_N_THREADS]
+const _QUIET_BUFS        = [[zeros(UInt64, 256) for _ in 1:_MAX_BUF_PLY] for _ in 1:_N_THREADS]
+const _CAPTURE_BUFS      = [[zeros(UInt64, 256) for _ in 1:_MAX_BUF_PLY] for _ in 1:_N_THREADS]
+const _SING_QUIET_BUFS   = [[zeros(UInt64, 256) for _ in 1:_MAX_BUF_PLY] for _ in 1:_N_THREADS]
+const _SING_CAPTURE_BUFS = [[zeros(UInt64, 256) for _ in 1:_MAX_BUF_PLY] for _ in 1:_N_THREADS]
+const _HASH_BUFS = [MoveList(1) for _ in 1:_N_THREADS]
 
 const _NO_PV   = UInt64[]
 const _PV_BUFS = [[UInt64[] for _ in 1:256] for _ in 1:_N_THREADS]
@@ -158,14 +165,18 @@ function clear_history()
 end
 
 @inline function update_cap_hist!(pc::Int, to_sq::Int, cap_pt::Int, bonus::Int, tid::Int)
+    @inbounds begin
     old = Int(cap_hist[pc, to_sq, cap_pt, tid])
     cap_hist[pc, to_sq, cap_pt, tid] = Int16(clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ))
+    end
 end
 
 @inline function update_history!(color::Int, from_sq::Int, to_sq::Int, bonus::Int, tid::Int)
+    @inbounds begin
     old = Int(history[color, from_sq, to_sq, tid])
     newv = clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ)
-    @inbounds history[color, from_sq, to_sq, tid] = Int16(newv)
+    history[color, from_sq, to_sq, tid] = Int16(newv)
+    end
 end
 
 @inline function update_cont_hist!(
@@ -175,8 +186,10 @@ end
     bonus::Int,
     tid::Int,
 )
+    @inbounds begin
     prev_pt, prev_to   = ply ≥ 2 ? move_stack[ply - 1, tid] : (0, 0)
     prev2_pt, prev2_to = ply ≥ 3 ? move_stack[ply - 2, tid] : (0, 0)
+    end
     prev_pt == 0 && return
     @inbounds begin
         old = Int(cont_hist[cur_to, cur_pt, prev_to, prev_pt, stm, tid])
@@ -207,7 +220,9 @@ const _CORR_MASK    = _CORR_SIZE - 1
 const _CORR_TABLE   = zeros(Int16, 2, _CORR_SIZE)  # [white, black]
 
 @inline function pawn_hist_idx(b::Board)::Int
+    @inbounds begin
     pk = b.bb[BB_WP] ⊻ b.bb[BB_BP]
+    end
     pk = pk ⊻ (pk >> 33)
     pk *= 0xFF51AFD7ED558CCD
     pk = pk ⊻ (pk >> 33)
@@ -215,24 +230,28 @@ const _CORR_TABLE   = zeros(Int16, 2, _CORR_SIZE)  # [white, black]
 end
 
 @inline function pawn_hist_score(b::Board, pt::Int, to::Int)::Int
-    Int(pawn_hist[pt, to, pawn_hist_idx(b)])
+    @inbounds Int(pawn_hist[pt, to, pawn_hist_idx(b)])
 end
 
 @inline function update_pawn_hist!(b::Board, pt::Int, to::Int, bonus::Int)
+    @inbounds begin
     idx = pawn_hist_idx(b)
     old = Int(pawn_hist[pt, to, idx])
     pawn_hist[pt, to, idx] = Int16(clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ))
+    end
 end
 
 @inline function corr_value(key::UInt64, color::Int)::Int
-    Int(_CORR_TABLE[color, Int(key & _CORR_MASK) + 1])
+    @inbounds Int(_CORR_TABLE[color, Int(key & _CORR_MASK) + 1])
 end
 
 @inline function corr_update!(key::UInt64, color::Int, bonus::Int)
+    @inbounds begin
     idx  = Int(key & _CORR_MASK) + 1
     old  = Int(_CORR_TABLE[color, idx])
     newv = clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ)
     _CORR_TABLE[color, idx] = Int16(newv)
+    end
 end
 
 # Minor piece correction history - same pattern, indexed by knight+bishop hash
@@ -241,18 +260,20 @@ const _MINOR_MASK  = _MINOR_SIZE - 1
 const _MINOR_TABLE = zeros(Int16, 2, _MINOR_SIZE)
 
 @inline function minor_key(b::Board)::UInt64
-    (b.bb[BB_WN] | b.bb[BB_BN]) ⊻ (b.bb[BB_WB] | b.bb[BB_BB])
+    @inbounds (b.bb[BB_WN] | b.bb[BB_BN]) ⊻ (b.bb[BB_WB] | b.bb[BB_BB])
 end
 
 @inline function minor_corr_value(key::UInt64, color::Int)::Int
-    Int(_MINOR_TABLE[color, Int(key & _MINOR_MASK) + 1])
+    @inbounds Int(_MINOR_TABLE[color, Int(key & _MINOR_MASK) + 1])
 end
 
 @inline function update_minor_corr!(key::UInt64, color::Int, bonus::Int)
+    @inbounds begin
     idx  = Int(key & _MINOR_MASK) + 1
     old  = Int(_MINOR_TABLE[color, idx])
     newv = clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ)
     _MINOR_TABLE[color, idx] = Int16(newv)
+    end
 end
 
 # Major piece correction history - keys on major material (queens + rooks), split by WHITE/BLACK.
@@ -264,25 +285,29 @@ const _MAJORB_MASK = _MAJORB_SIZE - 1
 const _MAJORB_TABLE = zeros(Int16, 2, _MAJORB_SIZE)
 
 @inline function major_corr_value_w(key::UInt64, color::Int)::Int
-    Int(_MAJORW_TABLE[color, Int(key & _MAJORW_MASK) + 1])
+    @inbounds Int(_MAJORW_TABLE[color, Int(key & _MAJORW_MASK) + 1])
 end
 
 @inline function major_corr_value_b(key::UInt64, color::Int)::Int
-    Int(_MAJORB_TABLE[color, Int(key & _MAJORB_MASK) + 1])
+    @inbounds Int(_MAJORB_TABLE[color, Int(key & _MAJORB_MASK) + 1])
 end
 
 @inline function update_major_corr_w!(key::UInt64, color::Int, bonus::Int)
+    @inbounds begin
     idx  = Int(key & _MAJORW_MASK) + 1
     old  = Int(_MAJORW_TABLE[color, idx])
     newv = clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ)
     _MAJORW_TABLE[color, idx] = Int16(newv)
+    end
 end
 
 @inline function update_major_corr_b!(key::UInt64, color::Int, bonus::Int)
+    @inbounds begin
     idx  = Int(key & _MAJORB_MASK) + 1
     old  = Int(_MAJORB_TABLE[color, idx])
     newv = clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ)
     _MAJORB_TABLE[color, idx] = Int16(newv)
+    end
 end
 
 # ============================================================
@@ -305,6 +330,7 @@ const _SCORE_BAD_CAPTURE =  -100_000   # bad captures (SEE < 0): below all quiet
     ply::Int;
     tid::Int = 1,
 )::Int
+    @inbounds begin
     m == tt_move && return _SCORE_HASH
 
     promo = promotion(m)
@@ -316,7 +342,7 @@ const _SCORE_BAD_CAPTURE =  -100_000   # bad captures (SEE < 0): below all quiet
         see_val = see(b, m)
         pc      = Int(b.pieces[from(m).val])            
         cap_pt  = max(1, ptype(pieceon(b, to(m))).val)   # 0 on en passant → treat as pawn
-        ch      = @inbounds Int(cap_hist[pc, to(m).val, cap_pt, tid]) * _SEE_VAL[QUEEN] ÷ Γ
+        ch      = Int(cap_hist[pc, to(m).val, cap_pt, tid]) * _SEE_VAL[QUEEN] ÷ Γ
         return see_val ≥ 0 ? _SCORE_CAPTURE + see_val + ch : _SCORE_BAD_CAPTURE + see_val + ch
     end
 
@@ -327,10 +353,11 @@ const _SCORE_BAD_CAPTURE =  -100_000   # bad captures (SEE < 0): below all quiet
     cur_pt             = ptype(pieceon(b, from(m))).val
     prev_pt,  prev_to  = ply ≥ 2 ? move_stack[ply - 1, tid] : (0, 0)
     prev2_pt, prev2_to = ply ≥ 3 ? move_stack[ply - 2, tid] : (0, 0)
-    ch  = prev_pt  > 0 ? @inbounds(Int(cont_hist[to(m).val,  cur_pt, prev_to,  prev_pt,  color, tid])) : 0
-    ch2 = prev2_pt > 0 ? @inbounds(Int(cont_hist2[to(m).val, cur_pt, prev2_to, prev2_pt, color, tid])) : 0
+    ch  = prev_pt  > 0 ? Int(cont_hist[to(m).val,  cur_pt, prev_to,  prev_pt,  color, tid]) : 0
+    ch2 = prev2_pt > 0 ? Int(cont_hist2[to(m).val, cur_pt, prev2_to, prev2_pt, color, tid]) : 0
     ph  = pawn_hist_score(b, cur_pt, to(m).val)
-    return @inbounds(history[color, from(m).val, to(m).val, tid]) + (ch * 1000 ÷ 1000) + (ch2 * 1000 ÷ 1000) + (ph * 425 ÷ 1000)
+    return history[color, from(m).val, to(m).val, tid] + (ch * 1000 ÷ 1000) + (ch2 * 1000 ÷ 1000) + (ph * 425 ÷ 1000)
+    end
 end
 
 function sort_moves!(
@@ -342,6 +369,7 @@ function sort_moves!(
     k2::UInt64,
     tid::Int,
 )
+    @inbounds begin
     n      = length(ml)
     scores = @view _MOVE_SCORES[1:n, ply, tid]
 
@@ -361,6 +389,7 @@ function sort_moves!(
         ml[j+1]     = tmp_m
         scores[j+1] = tmp_s
     end
+    end
 end
 
 # ============================================================
@@ -371,6 +400,8 @@ function quiescence(b::Board, α::Int, β::Int, ply::Int, key_history::Vector{UI
     _NODE_COUNT[tid] += 1
     _SELDEPTH[tid] = max(_SELDEPTH[tid], ply)
     search_stopped[] && return 0
+
+    @inbounds begin
 
     # Probe TT with depth -1 
     hit, tt_score, tt_flag, _, _, _ = probe_tt(b.key, DEPTH_QS, ply)
@@ -441,6 +472,8 @@ function quiescence(b::Board, α::Int, β::Int, ply::Int, key_history::Vector{UI
         store_tt(b.key, DEPTH_QS, best, flag, false, best_move, ply)
     end
 
+    end
+
     return best
 end
 
@@ -462,6 +495,7 @@ function negamax(
 )::Int where {NT <: NodeType}
 
     is_singular = excluded_move ≠ Move(0)
+    @inbounds begin
     _NODE_COUNT[tid] += 1
     _SELDEPTH[tid] = max(_SELDEPTH[tid], ply)
     search_stopped[] && return 0
@@ -578,187 +612,218 @@ function negamax(
 
     buf_idx  = min(ply, _MAX_BUF_PLY - 1) + 1
     ml_buf   = is_singular ? _SING_BUFS[tid][buf_idx] : _MOVE_BUFS[tid][buf_idx]
-    generate_moves!(ml_buf, b)
-    ml       = view(ml_buf.moves, 1:ml_buf.count)
 
     k1  = ply > 1 ? killers[1, ply, tid] : Move(0)
     k2  = ply > 1 ? killers[2, ply, tid] : Move(0)
-    sort_moves!(b, ml, ply, tt_best, k1, k2, tid)
 
-    best_score      = -∞
-    best_move       = Move(0)
-    flag            = TT_UPPER
-    searched_quiets   = Move[]
-    searched_captures = Move[]
+    best_score        = -∞
+    best_move         = Move(0)
+    flag              = TT_UPPER
+    quiet_buf         = is_singular ? _SING_QUIET_BUFS[tid][buf_idx]   : _QUIET_BUFS[tid][buf_idx]
+    capture_buf       = is_singular ? _SING_CAPTURE_BUFS[tid][buf_idx] : _CAPTURE_BUFS[tid][buf_idx]
+    nq                = 0
+    nc                = 0
     legal_moves       = 0
     α_0 = α
 
-    for (i, m) in enumerate(ml)
-        m == excluded_move && continue
+    # If the hash move caused a cutoff last time we searched this position,
+    # try it alone first so the common case skips move generation entirely.
+    try_hash_first = !is_singular && tt_best ≠ Move(0) && is_cut_node
+    cutoff = false
 
-        lmr        = legal_moves > 1 && depth ≥ 3 && promotion(m) == PieceType(0)
-        is_capture = moveiscapture(b, m)
-        is_quiet   = !is_capture && promotion(m) == PieceType(0)
-        cur_pt     = ptype(pieceon(b, from(m))).val
-
-        # Late move pruning
-        if depth ≤ 8 && !in_check && is_quiet && !is_pv_node
-            length(searched_quiets) ≥ (5 + depth * depth) ÷ (2 - Int(improving)) && continue
-        end
-
-        # SEE pruning + cache for LMR tweak below.
-        see_val       = (!in_check && !is_pv_node && !is_singular) ? see(b, m) : 0
-        see_threshold = 0
-        if !in_check && !is_pv_node && !is_singular
-            see_threshold = is_capture ? -45 * depth : -80 * depth * depth
-        end
-        
-        if depth ≤ 8 && !in_check && !is_pv_node && !is_singular
-            see_val < see_threshold && continue
-        end
-
-        # Singular extension: if the TT move is clearly better than all others,
-        # extend it by 1. Prevents recursive singular searches via excluded_move guard.
-        ext = 0
-        if m == tt_best && !is_singular && ply > 1 && depth ≥ 5 && tt_flag ≠ TT_UPPER && ply ≤ 2 * _ROOT_DEPTH[tid] &&
-            abs(tt_score) < MATE_SCORE - TT_MAX_PLY && tt_stored_depth ≥ depth - 3
-
-            singular_β  = tt_score - 3 * depth 
-            singular_depth = (depth ÷ 2) + 1
-            sing_score = negamax(CutNode, b, singular_depth, singular_β - 1, singular_β,
-                                 ply, key_history, tid; excluded_move = m)
-            if sing_score < singular_β
-                ext = 1
-                if sing_score < singular_β - 20 
-                    ext += 1 # double extension
-                end
-                if sing_score < singular_β - 40 
-                    ext += 1 # triple extension
-                end
-            elseif singular_β ≥ β
-                return singular_β  # multicut
+    for phase in 1:2
+        if phase == 1
+            if !try_hash_first
+                continue
             end
+            hash_buf = _HASH_BUFS[tid]
+            hash_buf.moves[1] = tt_best
+            hash_buf.count    = 1
+            ml = view(hash_buf.moves, 1:1)
+        else
+            generate_moves!(ml_buf, b)
+            ml = view(ml_buf.moves, 1:ml_buf.count)
+            sort_moves!(b, ml, ply, tt_best, k1, k2, tid)
         end
-        new_depth = depth - 1 + ext
 
-        update!(nnue_accs[tid], b, m, nnue_net)
-        u  = domove!(b, m)
-        if was_illegal(b)
+        for m in ml
+            phase == 2 && try_hash_first && m == tt_best && continue
+            m == excluded_move && continue
+
+            lmr        = legal_moves > 1 && depth ≥ 3 && promotion(m) == PieceType(0)
+            is_capture = moveiscapture(b, m)
+            is_quiet   = !is_capture && promotion(m) == PieceType(0)
+            cur_pt     = ptype(pieceon(b, from(m))).val
+
+            # Late move pruning
+            if depth ≤ 8 && !in_check && is_quiet && !is_pv_node
+                nq ≥ (5 + depth * depth) ÷ (2 - Int(improving)) && continue
+            end
+
+            # SEE pruning + cache for LMR tweak below.
+            see_val       = (!in_check && !is_pv_node && !is_singular) ? see(b, m) : 0
+            see_threshold = 0
+            if !in_check && !is_pv_node && !is_singular
+                see_threshold = is_capture ? -45 * depth : -80 * depth * depth
+            end
+
+            if depth ≤ 8 && !in_check && !is_pv_node && !is_singular
+                see_val < see_threshold && continue
+            end
+
+            # Singular extension: if the TT move is clearly better than all others,
+            # extend it by 1. Prevents recursive singular searches via excluded_move guard.
+            ext = 0
+            if m == tt_best && !is_singular && ply > 1 && depth ≥ 5 && tt_flag ≠ TT_UPPER && ply ≤ 2 * _ROOT_DEPTH[tid] &&
+                abs(tt_score) < MATE_SCORE - TT_MAX_PLY && tt_stored_depth ≥ depth - 3
+
+                singular_β  = tt_score - 3 * depth 
+                singular_depth = (depth ÷ 2) + 1
+                sing_score = negamax(CutNode, b, singular_depth, singular_β - 1, singular_β,
+                                     ply, key_history, tid; excluded_move = m)
+                if sing_score < singular_β
+                    ext = 1
+                    if sing_score < singular_β - 20 
+                        ext += 1 # double extension
+                    end
+                    if sing_score < singular_β - 40 
+                        ext += 1 # triple extension
+                    end
+                elseif singular_β ≥ β
+                    return singular_β  # multicut
+                end
+            end
+            new_depth = depth - 1 + ext
+
+            update!(nnue_accs[tid], b, m, nnue_net)
+            u  = domove!(b, m)
+            if was_illegal(b)
+                undomove!(b, u)
+                undo_update!(nnue_accs[tid], b, m, nnue_net)
+                continue
+            end
+            legal_moves += 1
+            push!(key_history, b.key)
+            move_stack[ply, tid] = (cur_pt, to(m).val)
+
+            killers[1, ply + 1, tid] = Move(0)
+            killers[2, ply + 1, tid] = Move(0)
+
+            if lmr
+                R = LMR_TABLE[depth, min(legal_moves, LMR_MOVES_MAX)]
+                ischeck(b)      && (R = max(1, R - 1))
+                is_capture      && (R = max(1, R - 1))
+                NT === AllNode  && (R += 1)
+                NT === CutNode  && (R += 1)
+                (promotion(m) ≠ PieceType(0)) && (R = max(1, R - 1))
+                if !is_pv_node && ply ≥ 5 &&
+                    eval < eval_stack[ply - 2, tid] < eval_stack[ply - 4, tid]
+                    R += 1
+                end
+
+                # Reduce more with low continuation history
+                if is_quiet && ply ≥ 3
+                    prev_pt,  prev_to  = move_stack[ply - 1, tid]
+                    prev2_pt, prev2_to = move_stack[ply - 2, tid]
+                    ch  = prev_pt  > 0 ? Int(cont_hist[to(m).val, cur_pt, prev_to,  prev_pt,  stm, tid]) : 0
+                    ch2 = prev2_pt > 0 ? Int(cont_hist2[to(m).val, cur_pt, prev2_to, prev2_pt, stm, tid]) : 0
+                    (ch + ch2) < -1000 && (R += 1)
+                end
+
+                # Reduce more for moves that nearly failed SEE pruning
+                if see_threshold != 0 && see_val < see_threshold ÷ 3 
+                    R += 1
+                end
+                R = min(R, depth - 1)
+            else
+                R = 0
+            end
+
+            # PV: first legal ⟹ PVNode; others ⟹ CutNode
+            # Cut: first legal ⟹ AllNode; others ⟹ CutNode
+            # All: all children ⟹ CutNode
+            child_pv  = _NO_PV
+            child_idx = min(ply + 1, 256)
+            if legal_moves == 1 && is_pv_node
+                child_pv = _PV_BUFS[tid][child_idx]; empty!(child_pv)
+                sc = -negamax(PVNode, b, new_depth, -β, -α, ply + 1, key_history, tid, child_pv)
+            elseif is_cut_node && legal_moves == 1
+                sc = -negamax(AllNode, b, new_depth - R, -α - 1, -α, ply + 1, key_history, tid)
+                if sc > α && R > 0
+                    sc = -negamax(AllNode, b, new_depth, -α - 1, -α, ply + 1, key_history, tid)
+                end
+            else
+                sc = -negamax(CutNode, b, new_depth - R, -α - 1, -α, ply + 1, key_history, tid)
+                if sc > α
+                    R > 0 && (sc = -negamax(CutNode, b, new_depth, -α - 1, -α, ply + 1, key_history, tid))
+                    if is_pv_node && sc > α && sc < β
+                        child_pv = _PV_BUFS[tid][child_idx]; empty!(child_pv)
+                        sc = -negamax(PVNode, b, new_depth, -β, -α, ply + 1, key_history, tid, child_pv)
+                    end
+                end
+            end
+
+            pop!(key_history)
             undomove!(b, u)
             undo_update!(nnue_accs[tid], b, m, nnue_net)
-            continue
-        end
-        legal_moves += 1
-        push!(key_history, b.key)
-        move_stack[ply, tid] = (cur_pt, to(m).val)
 
-        killers[1, ply + 1, tid] = Move(0)
-        killers[2, ply + 1, tid] = Move(0)
+            if sc > best_score
+                best_score = sc
+                best_move  = m
 
-        if lmr
-            R = LMR_TABLE[depth, min(legal_moves, LMR_MOVES_MAX)]
-            ischeck(b)      && (R = max(1, R - 1))
-            is_capture      && (R = max(1, R - 1))
-            NT === AllNode  && (R += 1)
-            NT === CutNode  && (R += 1)
-            (promotion(m) ≠ PieceType(0)) && (R = max(1, R - 1))
-            if !is_pv_node && ply ≥ 5 &&
-                eval < eval_stack[ply - 2, tid] < eval_stack[ply - 4, tid]
-                R += 1
-            end
-
-            # Reduce more with low continuation history
-            if is_quiet && ply ≥ 3
-                prev_pt,  prev_to  = move_stack[ply - 1, tid]
-                prev2_pt, prev2_to = move_stack[ply - 2, tid]
-                ch  = prev_pt  > 0 ? Int(cont_hist[to(m).val, cur_pt, prev_to,  prev_pt,  stm, tid]) : 0
-                ch2 = prev2_pt > 0 ? Int(cont_hist2[to(m).val, cur_pt, prev2_to, prev2_pt, stm, tid]) : 0
-                (ch + ch2) < -1000 && (R += 1)
-            end
-
-            # Reduce more for moves that nearly failed SEE pruning
-            if see_threshold != 0 && see_val < see_threshold ÷ 3 
-                R += 1
-            end
-            R = min(R, depth - 1)
-        else
-            R = 0
-        end
-
-        # PV: first legal ⟹ PVNode; others ⟹ CutNode
-        # Cut: first legal ⟹ AllNode; others ⟹ CutNode
-        # All: all children ⟹ CutNode
-        child_pv  = _NO_PV
-        child_idx = min(ply + 1, 256)
-        if legal_moves == 1 && is_pv_node
-            child_pv = _PV_BUFS[tid][child_idx]; empty!(child_pv)
-            sc = -negamax(PVNode, b, new_depth, -β, -α, ply + 1, key_history, tid, child_pv)
-        elseif is_cut_node && legal_moves == 1
-            sc = -negamax(AllNode, b, new_depth - R, -α - 1, -α, ply + 1, key_history, tid)
-            if sc > α && R > 0
-                sc = -negamax(AllNode, b, new_depth, -α - 1, -α, ply + 1, key_history, tid)
-            end
-        else
-            sc = -negamax(CutNode, b, new_depth - R, -α - 1, -α, ply + 1, key_history, tid)
-            if sc > α
-                R > 0 && (sc = -negamax(CutNode, b, new_depth, -α - 1, -α, ply + 1, key_history, tid))
-                if is_pv_node && sc > α && sc < β
-                    child_pv = _PV_BUFS[tid][child_idx]; empty!(child_pv)
-                    sc = -negamax(PVNode, b, new_depth, -β, -α, ply + 1, key_history, tid, child_pv)
-                end
-            end
-        end
-
-        pop!(key_history)
-        undomove!(b, u)
-        undo_update!(nnue_accs[tid], b, m, nnue_net)
-
-        if sc > best_score
-            best_score = sc
-            best_move  = m
-
-            if sc > α
-                α    = sc
-                flag = TT_EXACT
-                if is_pv_node
-                    empty!(pv)
-                    push!(pv, m)
-                    append!(pv, child_pv)
-                end
-
-                if α ≥ β
-                    flag = TT_LOWER
-                    bonus = depth * depth
-
-                    if is_quiet
-                        killers[2, ply, tid] = killers[1, ply, tid]
-                        killers[1, ply, tid] = m
-                        update_history!(stm, from(m).val, to(m).val, bonus, tid)
-                        update_cont_hist!(stm, ply, cur_pt, to(m).val, bonus, tid)
-                        update_pawn_hist!(b, cur_pt, to(m).val, bonus)
-                        for qm in searched_quiets
-                            qm_pt = ptype(pieceon(b, from(qm))).val
-                            update_history!(stm, from(qm).val, to(qm).val, -bonus, tid)
-                            update_cont_hist!(stm, ply, qm_pt, to(qm).val, -bonus, tid)
-                            update_pawn_hist!(b, qm_pt, to(qm).val, -bonus)
-                        end
-                    elseif is_capture && depth > 2
-                        pc     = Int(b.pieces[from(m).val])
-                        cap_pt = max(1, ptype(pieceon(b, to(m))).val)
-                        update_cap_hist!(pc, to(m).val, cap_pt, bonus, tid)
-                        for cm in searched_captures
-                            cm_pc     = Int(b.pieces[from(cm).val])
-                            cm_cap_pt = max(1, ptype(pieceon(b, to(cm))).val)
-                            update_cap_hist!(cm_pc, to(cm).val, cm_cap_pt, -bonus, tid)
-                        end
+                if sc > α
+                    α    = sc
+                    flag = TT_EXACT
+                    if is_pv_node
+                        empty!(pv)
+                        push!(pv, m)
+                        append!(pv, child_pv)
                     end
-                    break
+
+                    if α ≥ β
+                        flag = TT_LOWER
+                        bonus = depth * depth
+
+                        if is_quiet
+                            killers[2, ply, tid] = killers[1, ply, tid]
+                            killers[1, ply, tid] = m
+                            update_history!(stm, from(m).val, to(m).val, bonus, tid)
+                            update_cont_hist!(stm, ply, cur_pt, to(m).val, bonus, tid)
+                            update_pawn_hist!(b, cur_pt, to(m).val, bonus)
+                            for i in 1:nq
+                                qm = quiet_buf[i]
+                                qm_pt = ptype(pieceon(b, from(qm))).val
+                                update_history!(stm, from(qm).val, to(qm).val, -bonus, tid)
+                                update_cont_hist!(stm, ply, qm_pt, to(qm).val, -bonus, tid)
+                                update_pawn_hist!(b, qm_pt, to(qm).val, -bonus)
+                            end
+                        elseif is_capture && depth > 2
+                            pc     = Int(b.pieces[from(m).val])
+                            cap_pt = max(1, ptype(pieceon(b, to(m))).val)
+                            update_cap_hist!(pc, to(m).val, cap_pt, bonus, tid)
+                            for i in 1:nc
+                                cm = capture_buf[i]
+                                cm_pc     = Int(b.pieces[from(cm).val])
+                                cm_cap_pt = max(1, ptype(pieceon(b, to(cm))).val)
+                                update_cap_hist!(cm_pc, to(cm).val, cm_cap_pt, -bonus, tid)
+                            end
+                        end
+                        cutoff = true
+                        break
+                    end
                 end
+            end
+
+            if is_quiet   
+                nq += 1
+                quiet_buf[nq] = m
+            else 
+                nc += 1
+                capture_buf[nc] = m
             end
         end
 
-        is_quiet   && push!(searched_quiets, m)
-        is_capture && push!(searched_captures, m)
+        cutoff && break
     end
 
     if legal_moves == 0 && !search_stopped[]
@@ -779,6 +844,7 @@ function negamax(
     end
 
     !search_stopped[] && !is_singular && store_tt(b.key, depth, best_score, flag, is_pv_node, best_move, ply)
+    end
     return best_score
 end
 

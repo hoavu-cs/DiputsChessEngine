@@ -355,7 +355,7 @@ function nnue_eval(acc::Accumulator, b::Board, net::NNUENet)::Int
         out += Int64(uv) * uv * Int64(ow[i,           bkt])
         out += Int64(tv) * tv * Int64(ow[NNUE_HL + i, bkt])
     end
-    out = div(out, Int64(NNUE_QA)) + Int64(net.ob[bkt])
+    out = div(out, Int64(NNUE_QA)) + @inbounds Int64(net.ob[bkt])
     return Int(div(out * Int64(NNUE_SCALE), Int64(NNUE_QA * NNUE_QB)))
 end
 
