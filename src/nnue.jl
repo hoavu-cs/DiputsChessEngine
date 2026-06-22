@@ -4,8 +4,8 @@ const NNUE_BUCKETS = 8
 const NNUE_SCALE   = 400
 const NNUE_QA      = 255
 const NNUE_QB      = 64
-const NNUE_IB           = 10   # king input buckets (ChessBucketsMirrored)
-const NNUE_FINNY_SLOTS  = 2 * NNUE_IB  # mirror (0/1) × bucket (0..9) = 20 slots per perspective
+const NNUE_IB           = 10   # king input buckets
+const NNUE_FINNY_SLOTS  = 2 * NNUE_IB
 
 # King bucket layout: 32 entries indexed by rank*4 + mirror_file
 # rank=0(rank1)..7(rank8), mirror_file = min(file, 7-file)
@@ -74,12 +74,10 @@ mutable struct FinnyEntry
 end
 FinnyEntry() = FinnyEntry(zeros(Int32, NNUE_HL), zeros(UInt64, 12), false)
 
-# Finny slot index (1-based, range 1..NNUE_FINNY_SLOTS=20)
-# White perspective: bucket from physical wksq, mirror from physical wksq file
+# Finny slot index (1-based, range 1..NNUE_FINNY_SLOTS=18) for white and black perspective
 @inline _finny_slot_w(wksq::Int) =
     ((wksq & 7) >= 4 ? NNUE_IB : 0) + _king_bucket(wksq) + 1
 
-# Black perspective: bucket from rank-flipped bksq, mirror from physical bksq file
 @inline _finny_slot_b(bksq::Int) =
     ((bksq & 7) >= 4 ? NNUE_IB : 0) + _king_bucket(bksq ⊻ 56) + 1
 
@@ -87,8 +85,8 @@ FinnyEntry() = FinnyEntry(zeros(Int32, NNUE_HL), zeros(UInt64, 12), false)
 mutable struct Accumulator
     w::Vector{Int32}
     b::Vector{Int32}
-    wksq::Int    # white king std 0-based square
-    bksq::Int    # black king std 0-based square
+    wksq::Int   
+    bksq::Int   
     dirty::Bool  # true ⟹ needs refresh! before eval
     finny_w::Vector{FinnyEntry}   # NNUE_FINNY_SLOTS entries for white perspective
     finny_b::Vector{FinnyEntry}   # NNUE_FINNY_SLOTS entries for black perspective
