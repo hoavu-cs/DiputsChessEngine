@@ -508,6 +508,122 @@ function generate_moves(pos::Board)::MoveList
 end
 
 # ============================================================
+# Captures-only generator 
+# ============================================================
+
+@inline function gen_pawn_captures!(ml::MoveList, pos::Board, from::Int, color::Int, their_bb::UInt64)
+    @inbounds begin
+        n = from + 1
+
+        cap_bb = PAWN_ATTACKS[color+1][n] & their_bb
+        while cap_bb ≠ 0
+            to, cap_bb = poplsb!(cap_bb)
+            promo_rank = color == 0 ? 7 : 0
+            if rank(to) == promo_rank
+                push_move!(ml, from, to, 1, 0)
+                push_move!(ml, from, to, 2, 0)
+                push_move!(ml, from, to, 3, 0)
+                push_move!(ml, from, to, 4, 0)
+            else
+                push_move!(ml, from, to, 0, 0)
+            end
+        end
+
+        # Non-capturing promotion push
+        push_bb = PAWN_PUSHES[color+1][n]
+        if push_bb ≠ 0 && push_bb & pos.occupied == 0
+            to = poplsb(push_bb)
+            promo_rank = color == 0 ? 7 : 0
+            if rank(to) == promo_rank
+                push_move!(ml, from, to, 1, 0)
+                push_move!(ml, from, to, 2, 0)
+                push_move!(ml, from, to, 3, 0)
+                push_move!(ml, from, to, 4, 0)
+            end
+        end
+
+        # En passant
+        pos.ep_square < 64 || return
+        PAWN_ATTACKS[color+1][n] & bit(pos.ep_square) == 0 && return
+        push_move!(ml, from, pos.ep_square, 0, 4)
+    end
+end
+
+@inline function gen_knight_captures!(ml::MoveList, from::Int, their_bb::UInt64)
+    targets = @inbounds KNIGHT_ATTACKS[from + 1] & their_bb
+    while targets ≠ 0
+        to, targets = poplsb!(targets)
+        push_move!(ml, from, to, 0, 0)
+    end
+end
+
+@inline function gen_king_captures!(ml::MoveList, from::Int, their_bb::UInt64)
+    targets = @inbounds KING_ATTACKS[from + 1] & their_bb
+    while targets ≠ 0
+        to, targets = poplsb!(targets)
+        push_move!(ml, from, to, 0, 0)
+    end
+end
+
+@inline function gen_bishop_captures!(ml::MoveList, pos::Board, from::Int, their_bb::UInt64)
+    targets = bishop_attacks(from, pos.occupied) & their_bb
+    while targets ≠ 0
+        to, targets = poplsb!(targets)
+        push_move!(ml, from, to, 0, 0)
+    end
+end
+
+@inline function gen_rook_captures!(ml::MoveList, pos::Board, from::Int, their_bb::UInt64)
+    targets = rook_attacks(from, pos.occupied) & their_bb
+    while targets ≠ 0
+        to, targets = poplsb!(targets)
+        push_move!(ml, from, to, 0, 0)
+    end
+end
+
+function generate_captures!(ml::MoveList, pos::Board)
+    ml.count = 0
+    @inbounds begin
+        bb    = pos.bb
+        c     = pos.stm
+        base  = c * 6
+        their = c == 0 ? pos.black_bb : pos.white_bb
+
+        pcs = bb[base + 1]
+        while pcs ≠ 0
+            from, pcs = poplsb!(pcs); gen_pawn_captures!(ml, pos, from, c, their)
+        end
+
+        pcs = bb[base + 2]
+        while pcs ≠ 0
+            from, pcs = poplsb!(pcs); gen_knight_captures!(ml, from, their)
+        end
+
+        pcs = bb[base + 3]
+        while pcs ≠ 0
+            from, pcs = poplsb!(pcs); gen_bishop_captures!(ml, pos, from, their)
+        end
+
+        pcs = bb[base + 4]
+        while pcs ≠ 0
+            from, pcs = poplsb!(pcs); gen_rook_captures!(ml, pos, from, their)
+        end
+
+        pcs = bb[base + 5]
+        while pcs ≠ 0
+            from, pcs = poplsb!(pcs)
+            gen_bishop_captures!(ml, pos, from, their)
+            gen_rook_captures!(ml, pos, from, their)
+        end
+
+        pcs = bb[base + 6]
+        while pcs ≠ 0
+            from, pcs = poplsb!(pcs); gen_king_captures!(ml, from, their)
+        end
+    end
+end
+
+# ============================================================
 # Board queries
 # ============================================================
 
@@ -964,7 +1080,7 @@ end
 # ============================================================
 # Static Exchange Evaluation
 # ============================================================
-const _SEE_VAL = (100, 320, 330, 500, 900, 20000, 0)  # [P, N, B, R, Q, K, none]
+const _SEE_VAL = (100, 320, 346, 500, 890, 20000, 0)  # [P, N, B, R, Q, K, none]
 
 # All pieces (both colors) that attack square `s` given occupancy `occ`.
 # Sliding attacks are recomputed with magic bitboards; non-sliders use precomputed tables.
@@ -1071,6 +1187,49 @@ end
 
     return target_val - see_rec(pos, occ, to_s, pos.stm ⊻ 1, our_val,
                                 attacks_to(pos, to_s, occ), bq, rq)
+end
+
+
+# ============================================================
+# Threats
+# ============================================================
+
+function threats(pos::Board, stm::Int)::UInt64
+    @inbounds begin
+        bb  = pos.bb
+        occ = pos.occupied
+        base = stm == 0 ? 0 : 6  
+        atk = UInt64(0)
+
+        pawns = bb[base + 1]
+        while pawns ≠ 0
+            sq, pawns = poplsb!(pawns)
+            atk |= PAWN_ATTACKS[stm + 1][sq + 1]
+        end
+
+        knights = bb[base + 2]
+        while knights ≠ 0
+            sq, knights = poplsb!(knights)
+            atk |= KNIGHT_ATTACKS[sq + 1]
+        end
+
+        bishops_queens = bb[base + 3] | bb[base + 5]
+        while bishops_queens ≠ 0
+            sq, bishops_queens = poplsb!(bishops_queens)
+            atk |= bishop_attacks(sq, occ)
+        end
+
+        rooks_queens = bb[base + 4] | bb[base + 5]
+        while rooks_queens ≠ 0
+            sq, rooks_queens = poplsb!(rooks_queens)
+            atk |= rook_attacks(sq, occ)
+        end
+
+        king = bb[base + 6]
+        king ≠ 0 && (atk |= KING_ATTACKS[poplsb(king) + 1])
+
+        return atk
+    end
 end
 
 # ============================================================

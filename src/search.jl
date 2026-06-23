@@ -420,15 +420,8 @@ function quiescence(b::Board, α::Int, β::Int, ply::Int, key_history::Vector{UI
     α = max(α, stand_pat)
 
     cap_buf = _MOVE_BUFS[tid][min(ply, _MAX_BUF_PLY - 1) + 1]
-    generate_moves!(cap_buf, b)
-    j = 0
-    for i in 1:cap_buf.count
-        m = cap_buf.moves[i]
-        if moveiscapture(b, m) || promotion(m) ≠ PieceType(0)
-            j += 1
-            cap_buf.moves[j] = m
-        end
-    end
+    generate_captures!(cap_buf, b)
+    j = cap_buf.count
     if j == 0
         !search_stopped[] && store_tt(b.key, DEPTH_QS, α, TT_UPPER, false, Move(0), ply)
         return α
