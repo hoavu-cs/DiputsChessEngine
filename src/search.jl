@@ -17,7 +17,7 @@ struct AllNode <: NodeType end
 const _N_THREADS = max(1, Threads.nthreads() - 1)
 const _NODE_COUNT   = fill(0, _N_THREADS)
 const _SELDEPTH     = fill(0, _N_THREADS)
-const _ROOT_DEPTH    = fill(0, _N_THREADS)
+const _ROOT_DEPTH   = fill(0, _N_THREADS)
 
 # ============================================================
 # Transposition Table (shared)
@@ -101,7 +101,7 @@ const LMR_TABLE = zeros(Int, LMR_DEPTH_MAX, LMR_MOVES_MAX)
 function init_lmr_table!()
     for d in 1:LMR_DEPTH_MAX
         for i in 1:LMR_MOVES_MAX
-            R = 1 + log(d) * log(i) / 3
+            R = 1 + log(d) * log(i) / (lmr_div / 1000)
             LMR_TABLE[d, i] = clamp(round(Int, R), 1, d - 1)
         end
     end
@@ -342,7 +342,7 @@ const _SCORE_BAD_CAPTURE =  -100_000   # bad captures (SEE < 0): below all quiet
         see_val = see(b, m)
         pc      = Int(b.pieces[from(m).val])            
         cap_pt  = max(1, ptype(pieceon(b, to(m))).val)   # 0 on en passant → treat as pawn
-        ch      = Int(cap_hist[pc, to(m).val, cap_pt, tid]) * _SEE_VAL[QUEEN] ÷ Γ
+        ch      = Int(cap_hist[pc, to(m).val, cap_pt, tid]) * cap_hist_w ÷ 1024
         return see_val ≥ 0 ? _SCORE_CAPTURE + see_val + ch : _SCORE_BAD_CAPTURE + see_val + ch
     end
 
@@ -356,7 +356,7 @@ const _SCORE_BAD_CAPTURE =  -100_000   # bad captures (SEE < 0): below all quiet
     ch  = prev_pt  > 0 ? Int(cont_hist[to(m).val,  cur_pt, prev_to,  prev_pt,  color, tid]) : 0
     ch2 = prev2_pt > 0 ? Int(cont_hist2[to(m).val, cur_pt, prev2_to, prev2_pt, color, tid]) : 0
     ph  = pawn_hist_score(b, cur_pt, to(m).val)
-    return history[color, from(m).val, to(m).val, tid] + (ch * 1000 ÷ 1000) + (ch2 * 1000 ÷ 1000) + (ph * 425 ÷ 1000)
+    return history[color, from(m).val, to(m).val, tid] + (ch * cont_hist_w ÷ 1024) + (ch2 * cont_hist2_w ÷ 1024) + (ph * pawn_hist_w ÷ 1024)
     end
 end
 
@@ -489,354 +489,355 @@ function negamax(
 
     is_singular = excluded_move ≠ Move(0)
     @inbounds begin
-    _NODE_COUNT[tid] += 1
-    _SELDEPTH[tid] = max(_SELDEPTH[tid], ply)
-    search_stopped[] && return 0
-    ply > 230 && return quiescence(b, α, β, ply, key_history, tid)
-    if _NODE_COUNT[tid] & 0x3FFF == 0 && time_ns() ≥ search_deadline[]
-        search_stopped[] = true
-        return 0
-    end
-
-    if ply > 1
-        cnt = 0
-        start = max(1, length(key_history) - b.halfmove_clock)
-        for i in start:length(key_history)
-            @inbounds key_history[i] == b.key && (cnt += 1)
-            cnt ≥ 2 && return 0
+        _NODE_COUNT[tid] += 1
+        _SELDEPTH[tid] = max(_SELDEPTH[tid], ply)
+        search_stopped[] && return 0
+        ply > 230 && return quiescence(b, α, β, ply, key_history, tid)
+        if _NODE_COUNT[tid] & 0x3FFF == 0 && time_ns() ≥ search_deadline[]
+            search_stopped[] = true
+            return 0
         end
-        isdraw(b) && return 0
 
-        # Mate distance pruning
-        α = max(α, -(MATE_SCORE - ply))
-        β = min(β,   MATE_SCORE - ply)
-        α ≥ β && return α
-    end
+        if ply > 1
+            cnt = 0
+            start = max(1, length(key_history) - b.halfmove_clock)
+            for i in start:length(key_history)
+                @inbounds key_history[i] == b.key && (cnt += 1)
+                cnt ≥ 2 && return 0
+            end
+            isdraw(b) && return 0
 
-    in_check = ischeck(b)
-    stm      = sidetomove(b) == WHITE ? 1 : 2
+            # Mate distance pruning
+            α = max(α, -(MATE_SCORE - ply))
+            β = min(β,   MATE_SCORE - ply)
+            α ≥ β && return α
+        end
 
-    if depth == 0
-        if !in_check
+        in_check = ischeck(b)
+        stm      = sidetomove(b) == WHITE ? 1 : 2
+
+        if depth == 0
+            if !in_check
+                return quiescence(b, α, β, ply, key_history, tid)
+            end
+            depth = 1
+        end
+
+        # TT look up for alpha-beta pruning
+        hit, tt_score, tt_flag, tt_is_pv, tt_best, tt_stored_depth = probe_tt(b.key, depth, ply)
+        is_pv_node  = (NT === PVNode)
+        is_cut_node = (NT === CutNode)
+
+        if hit && !is_singular && ply > 1
+            if tt_flag == TT_EXACT
+                return tt_score
+            elseif tt_flag == TT_LOWER
+                α = max(α, tt_score)
+            elseif tt_flag == TT_UPPER
+                β = min(β, tt_score)
+            end
+            α ≥ β && return tt_score
+        end
+
+        # Internal iterative reduction (skip at AllNodes)
+        depth -= (tt_best == Move(0) && depth ≥ 3 && (is_pv_node || is_cut_node)) && (ply > 1) ? 1 : 0
+
+        # Raw NNUE eval
+        raw_eval = nnue_eval(nnue_accs[tid], b, nnue_net)
+
+        # Apply pawn, minor & non-pawn correction history to raw eval
+        eval = raw_eval + (corr_value(b.bb[BB_WP] | b.bb[BB_BP], stm) * corr_pawn_w ÷ 1024
+                        + minor_corr_value(minor_key(b), stm) * corr_minor_w ÷ 1024
+                        + major_corr_value_w(b.bb[BB_WQ] | b.bb[BB_WR], stm) * corr_major_w_w ÷ 1024
+                        + major_corr_value_b(b.bb[BB_BQ] | b.bb[BB_BR], stm) * corr_major_b_w ÷ 1024) ÷ Δ
+
+        # TT score overrides if it provides a tighter bound
+        if tt_flag == TT_EXACT ||
+        (tt_flag == TT_LOWER && tt_score > eval) ||
+        (tt_flag == TT_UPPER && tt_score < eval)
+            eval = tt_score
+        end
+        
+        eval = clamp(eval, -(MATE_SCORE - TT_MAX_PLY), MATE_SCORE - TT_MAX_PLY)
+        eval_stack[ply, tid] = eval
+        improving = !in_check && ply ≥ 3 && eval > eval_stack[ply - 2, tid]
+
+        # Mini-probcut: TT lower bound well above beta ⟹ prune
+        if ply > 1 && (tt_flag == TT_LOWER || tt_flag == TT_EXACT) && tt_stored_depth ≥ depth - 4 &&
+        tt_score ≥ β + mini_pc_margin && abs(β) < MATE_SCORE - TT_MAX_PLY &&
+        abs(tt_score) < MATE_SCORE - TT_MAX_PLY && !is_singular && !is_pv_node
+            return β + mini_pc_margin
+        end
+
+        # Reverse futility pruning 
+        if depth ≤ 7 && !in_check && !is_pv_node && !is_singular
+            if eval ≥ β + rfp_mult[depth] * depth - rfp_improving_offset * improving && tt_best == Move(0)
+                return (eval + β) ÷ 2
+            end
+        end
+
+        # Razoring: at depth 1 and 2, if eval is far below alpha, just return qsearch
+        if depth ≤ 2 && !in_check && !is_pv_node && eval + (depth == 1 ? razor_margin_1 : razor_margin_2) ≤ α
             return quiescence(b, α, β, ply, key_history, tid)
         end
-        depth = 1
-    end
 
-    # TT look up for alpha-beta pruning
-    hit, tt_score, tt_flag, tt_is_pv, tt_best, tt_stored_depth = probe_tt(b.key, depth, ply)
-    is_pv_node  = (NT === PVNode)
-    is_cut_node = (NT === CutNode)
-    if hit && !is_singular && ply > 1
-        if tt_flag == TT_EXACT
-            return tt_score
-        elseif tt_flag == TT_LOWER
-            α = max(α, tt_score)
-        elseif tt_flag == TT_UPPER
-            β = min(β, tt_score)
-        end
-        α ≥ β && return tt_score
-    end
-
-    # Internal iterative reduction (skip at AllNodes)
-    depth -= (tt_best == Move(0) && depth ≥ 3 && (is_pv_node || is_cut_node)) && (ply > 1) ? 1 : 0
-
-    # Raw NNUE eval
-    raw_eval = nnue_eval(nnue_accs[tid], b, nnue_net)
-
-    # Apply pawn, minor & non-pawn correction history to raw eval
-    eval = raw_eval + (corr_value(b.bb[BB_WP] | b.bb[BB_BP], stm)
-                     + minor_corr_value(minor_key(b), stm)
-                     + major_corr_value_w(b.bb[BB_WQ] | b.bb[BB_WR], stm) ÷ 2
-                     + major_corr_value_b(b.bb[BB_BQ] | b.bb[BB_BR], stm) ÷ 2) ÷ Δ
-
-    # TT score overrides if it provides a tighter bound
-    if tt_flag == TT_EXACT ||
-       (tt_flag == TT_LOWER && tt_score > eval) ||
-       (tt_flag == TT_UPPER && tt_score < eval)
-        eval = tt_score
-    end
-    
-    eval = clamp(eval, -(MATE_SCORE - TT_MAX_PLY), MATE_SCORE - TT_MAX_PLY)
-    eval_stack[ply, tid] = eval
-    improving = !in_check && ply ≥ 3 && eval > eval_stack[ply - 2, tid]
-
-    # Mini-probcut: TT lower bound well above beta ⟹ prune
-    if ply > 1 && (tt_flag == TT_LOWER || tt_flag == TT_EXACT) && tt_stored_depth ≥ depth - 4 &&
-       tt_score ≥ β + 500 && abs(β) < MATE_SCORE - TT_MAX_PLY &&
-       abs(tt_score) < MATE_SCORE - TT_MAX_PLY && !is_singular && !is_pv_node
-        return β + 500
-    end
-
-    # Reverse futility pruning (multiplier interpolated 120→175 over depths 1–7)
-    if depth ≤ 7 && !in_check && !is_pv_node && !is_singular
-        rfp_mult = (140, 145, 155, 160, 165, 175, 200)[depth]
-        if eval ≥ β + rfp_mult * depth - 90 * improving && tt_best == Move(0)
-            return (eval + β) ÷ 2
-        end
-    end
-
-    # Razoring: at depth 1 and 2, if eval is far below alpha, just return qsearch
-    razor_margins = (350, 1200)
-    if depth ≤ 2 && !in_check && !is_pv_node && eval + razor_margins[depth] ≤ α
-        return quiescence(b, α, β, ply, key_history, tid)
-    end
-
-    # Null move pruning
-    if depth ≥ 3 && !in_check && eval ≥ β && !is_pv_node && !is_singular
-        has_piece = false
-        side = sidetomove(b)
-        for pt in (QUEEN, ROOK, BISHOP, KNIGHT)
-            for _ in pieces(b, side, pt)
-                has_piece = true
-                break
-            end
-            has_piece && break
-        end
-        if has_piece
-            R = min(4 + (depth ÷ 3), depth - 1)
-            u = donullmove!(b)
-            move_stack[ply, tid] = (0, 0)
-            sc = -negamax(CutNode, b, depth - 1 - R, -β, -β + 1, ply + 1, key_history, tid)
-            undomove!(b, u)
-            sc ≥ β && return sc
-        end
-    end
-
-    buf_idx  = min(ply, _MAX_BUF_PLY - 1) + 1
-    ml_buf   = is_singular ? _SING_BUFS[tid][buf_idx] : _MOVE_BUFS[tid][buf_idx]
-
-    k1  = ply > 1 ? killers[1, ply, tid] : Move(0)
-    k2  = ply > 1 ? killers[2, ply, tid] : Move(0)
-
-    best_score        = -∞
-    best_move         = Move(0)
-    flag              = TT_UPPER
-    quiet_buf         = is_singular ? _SING_QUIET_BUFS[tid][buf_idx]   : _QUIET_BUFS[tid][buf_idx]
-    capture_buf       = is_singular ? _SING_CAPTURE_BUFS[tid][buf_idx] : _CAPTURE_BUFS[tid][buf_idx]
-    nq                = 0
-    nc                = 0
-    legal_moves       = 0
-    α_0 = α
-
-    # If the hash move caused a cutoff last time we searched this position,
-    # try it alone first so the common case skips move generation entirely.
-    try_hash_first = !is_singular && tt_best ≠ Move(0) && is_cut_node
-    cutoff = false
-
-    for phase in 1:2
-        if phase == 1
-            if !try_hash_first
-                continue
-            end
-            hash_buf = _HASH_BUFS[tid]
-            hash_buf.moves[1] = tt_best
-            hash_buf.count    = 1
-            ml = view(hash_buf.moves, 1:1)
-        else
-            generate_moves!(ml_buf, b)
-            ml = view(ml_buf.moves, 1:ml_buf.count)
-            sort_moves!(b, ml, ply, tt_best, k1, k2, tid)
-        end
-
-        for m in ml
-            phase == 2 && try_hash_first && m == tt_best && continue
-            m == excluded_move && continue
-
-            lmr        = legal_moves > 1 && depth ≥ 3 && promotion(m) == PieceType(0)
-            is_capture = moveiscapture(b, m)
-            is_quiet   = !is_capture && promotion(m) == PieceType(0)
-            cur_pt     = ptype(pieceon(b, from(m))).val
-
-            # Late move pruning
-            if depth ≤ 8 && !in_check && is_quiet && !is_pv_node
-                nq ≥ (5 + depth * depth) ÷ (2 - Int(improving)) && continue
-            end
-
-            # SEE pruning + cache for LMR tweak below.
-            see_val       = (!in_check && !is_pv_node && !is_singular) ? see(b, m) : 0
-            see_threshold = 0
-            if !in_check && !is_pv_node && !is_singular
-                see_threshold = is_capture ? -45 * depth : -80 * depth * depth
-            end
-
-            if depth ≤ 8 && !in_check && !is_pv_node && !is_singular
-                see_val < see_threshold && continue
-            end
-
-            # Singular extension: if the TT move is clearly better than all others,
-            # extend it by 1. Prevents recursive singular searches via excluded_move guard.
-            ext = 0
-            if m == tt_best && !is_singular && ply > 1 && depth ≥ 5 && tt_flag ≠ TT_UPPER && ply ≤ 2 * _ROOT_DEPTH[tid] &&
-                abs(tt_score) < MATE_SCORE - TT_MAX_PLY && tt_stored_depth ≥ depth - 3
-
-                singular_β  = tt_score - 3 * depth 
-                singular_depth = (depth ÷ 2) 
-                sing_score = negamax(CutNode, b, singular_depth, singular_β - 1, singular_β,
-                                     ply, key_history, tid; excluded_move = m)
-                if sing_score < singular_β
-                    ext = 1
-                    if sing_score < singular_β - 20 
-                        ext += 1 # double extension
-                    end
-                    if sing_score < singular_β - 40 
-                        ext += 1 # triple extension
-                    end
-                elseif singular_β ≥ β
-                    return singular_β  # multicut
+        # Null move pruning
+        if depth ≥ 3 && !in_check && eval ≥ β && !is_pv_node && !is_singular
+            has_piece = false
+            side = sidetomove(b)
+            for pt in (QUEEN, ROOK, BISHOP, KNIGHT)
+                for _ in pieces(b, side, pt)
+                    has_piece = true
+                    break
                 end
+                has_piece && break
             end
-            new_depth = depth - 1 + ext
+            if has_piece
+                R = min(4 + (depth ÷ 3), depth - 1)
+                u = donullmove!(b)
+                move_stack[ply, tid] = (0, 0)
+                sc = -negamax(CutNode, b, depth - 1 - R, -β, -β + 1, ply + 1, key_history, tid)
+                undomove!(b, u)
+                sc ≥ β && return sc
+            end
+        end
 
-            update!(nnue_accs[tid], b, m, nnue_net)
-            u  = domove!(b, m)
-            if was_illegal(b)
+        buf_idx  = min(ply, _MAX_BUF_PLY - 1) + 1
+        ml_buf   = is_singular ? _SING_BUFS[tid][buf_idx] : _MOVE_BUFS[tid][buf_idx]
+
+        k1  = ply > 1 ? killers[1, ply, tid] : Move(0)
+        k2  = ply > 1 ? killers[2, ply, tid] : Move(0)
+
+        best_score        = -∞
+        best_move         = Move(0)
+        flag              = TT_UPPER
+        quiet_buf         = is_singular ? _SING_QUIET_BUFS[tid][buf_idx]   : _QUIET_BUFS[tid][buf_idx]
+        capture_buf       = is_singular ? _SING_CAPTURE_BUFS[tid][buf_idx] : _CAPTURE_BUFS[tid][buf_idx]
+        nq                = 0
+        nc                = 0
+        legal_moves       = 0
+        α_0 = α
+
+        # If the hash move caused a cutoff last time we searched this position,
+        # try it alone first so the common case skips move generation entirely.
+        try_hash_first = !is_singular && tt_best ≠ Move(0) && is_cut_node
+        cutoff = false
+
+        for phase in 1:2
+            if phase == 1
+                if !try_hash_first
+                    continue
+                end
+                hash_buf = _HASH_BUFS[tid]
+                hash_buf.moves[1] = tt_best
+                hash_buf.count    = 1
+                ml = view(hash_buf.moves, 1:1)
+            else
+                generate_moves!(ml_buf, b)
+                ml = view(ml_buf.moves, 1:ml_buf.count)
+                sort_moves!(b, ml, ply, tt_best, k1, k2, tid)
+            end
+
+            for m in ml
+                phase == 2 && try_hash_first && m == tt_best && continue
+                m == excluded_move && continue
+
+                lmr        = legal_moves > 1 && depth ≥ 3 && promotion(m) == PieceType(0)
+                is_capture = moveiscapture(b, m)
+                is_quiet   = !is_capture && promotion(m) == PieceType(0)
+                cur_pt     = ptype(pieceon(b, from(m))).val
+
+                # Late move pruning
+                if depth ≤ 8 && !in_check && is_quiet && !is_pv_node
+                    nq ≥ (5 + depth * depth) ÷ (2 - Int(improving)) && continue
+                end
+
+                # SEE pruning + cache for LMR tweak below.
+                see_val       = (!in_check && !is_pv_node && !is_singular) ? see(b, m) : 0
+                see_threshold = 0
+                if !in_check && !is_pv_node && !is_singular
+                    see_threshold = is_capture ? -see_capture_coeff * depth : -see_quiet_coeff * depth * depth
+                end
+
+                if depth ≤ 8 && !in_check && !is_pv_node && !is_singular
+                    see_val < see_threshold && continue
+                end
+
+                # Singular extension: if the TT move is clearly better than all others,
+                # extend it by 1. Prevents recursive singular searches via excluded_move guard.
+                ext = 0
+                if m == tt_best && !is_singular && ply > 1 && depth ≥ 5 && tt_flag ≠ TT_UPPER && ply ≤ 2 * _ROOT_DEPTH[tid] &&
+                    abs(tt_score) < MATE_SCORE - TT_MAX_PLY && tt_stored_depth ≥ depth - 3
+
+                    singular_β  = tt_score - 3 * depth 
+                    singular_depth = (depth ÷ 2) 
+                    sing_score = negamax(CutNode, b, singular_depth, singular_β - 1, singular_β,
+                                        ply, key_history, tid; excluded_move = m)
+                    if sing_score < singular_β
+                        ext = 1
+                        if sing_score < singular_β - sing_double_thresh
+                            ext += 1 # double extension
+                        end
+                        if sing_score < singular_β - sing_triple_thresh
+                            ext += 1 # triple extension
+                        end
+                    elseif singular_β ≥ β
+                        return singular_β  # multicut
+                    end
+                end
+                new_depth = depth - 1 + ext
+
+                update!(nnue_accs[tid], b, m, nnue_net)
+                u  = domove!(b, m)
+                if was_illegal(b)
+                    undomove!(b, u)
+                    undo_update!(nnue_accs[tid], b, m, nnue_net)
+                    continue
+                end
+                legal_moves += 1
+                push!(key_history, b.key)
+                move_stack[ply, tid] = (cur_pt, to(m).val)
+
+                killers[1, ply + 1, tid] = Move(0)
+                killers[2, ply + 1, tid] = Move(0)
+
+                if lmr
+                    R = LMR_TABLE[depth, min(legal_moves, LMR_MOVES_MAX)]
+                    ischeck(b)      && (R = max(1, R - 1))
+                    is_capture      && (R = max(1, R - 1))
+                    NT === AllNode  && (R += 1)
+                    NT === CutNode  && (R += 1)
+                    (promotion(m) ≠ PieceType(0)) && (R = max(1, R - 1))
+                    if !is_pv_node && ply ≥ 5 &&
+                        eval < eval_stack[ply - 2, tid] < eval_stack[ply - 4, tid]
+                        R += 1
+                    end
+
+                    # Reduce more with low continuation history
+                    if is_quiet && ply ≥ 3
+                        prev_pt,  prev_to  = move_stack[ply - 1, tid]
+                        prev2_pt, prev2_to = move_stack[ply - 2, tid]
+                        ch  = prev_pt  > 0 ? Int(cont_hist[to(m).val, cur_pt, prev_to,  prev_pt,  stm, tid]) : 0
+                        ch2 = prev2_pt > 0 ? Int(cont_hist2[to(m).val, cur_pt, prev2_to, prev2_pt, stm, tid]) : 0
+                        if ch + ch2 < -lmr_ch_thresh 
+                            R += 1
+                        end
+                    end
+
+                    # Reduce more for moves that nearly failed SEE pruning
+                    if see_threshold != 0 && see_val < see_threshold ÷ 3 
+                        R += 1
+                    end
+                    R = min(R, depth - 1)
+                else
+                    R = 0
+                end
+
+                # PV: first legal ⟹ PVNode; others ⟹ CutNode
+                # Cut: first legal ⟹ AllNode; others ⟹ CutNode
+                # All: all children ⟹ CutNode
+                child_pv  = _NO_PV
+                child_idx = min(ply + 1, 256)
+                if legal_moves == 1 && is_pv_node
+                    child_pv = _PV_BUFS[tid][child_idx]; empty!(child_pv)
+                    sc = -negamax(PVNode, b, new_depth, -β, -α, ply + 1, key_history, tid, child_pv)
+                elseif is_cut_node && legal_moves == 1
+                    sc = -negamax(AllNode, b, new_depth - R, -α - 1, -α, ply + 1, key_history, tid)
+                    if sc > α && R > 0
+                        sc = -negamax(AllNode, b, new_depth, -α - 1, -α, ply + 1, key_history, tid)
+                    end
+                else
+                    sc = -negamax(CutNode, b, new_depth - R, -α - 1, -α, ply + 1, key_history, tid)
+                    if sc > α
+                        R > 0 && (sc = -negamax(CutNode, b, new_depth, -α - 1, -α, ply + 1, key_history, tid))
+                        if is_pv_node && sc > α && sc < β
+                            child_pv = _PV_BUFS[tid][child_idx]; empty!(child_pv)
+                            sc = -negamax(PVNode, b, new_depth, -β, -α, ply + 1, key_history, tid, child_pv)
+                        end
+                    end
+                end
+
+                pop!(key_history)
                 undomove!(b, u)
                 undo_update!(nnue_accs[tid], b, m, nnue_net)
-                continue
-            end
-            legal_moves += 1
-            push!(key_history, b.key)
-            move_stack[ply, tid] = (cur_pt, to(m).val)
 
-            killers[1, ply + 1, tid] = Move(0)
-            killers[2, ply + 1, tid] = Move(0)
+                if sc > best_score
+                    best_score = sc
+                    best_move  = m
 
-            if lmr
-                R = LMR_TABLE[depth, min(legal_moves, LMR_MOVES_MAX)]
-                ischeck(b)      && (R = max(1, R - 1))
-                is_capture      && (R = max(1, R - 1))
-                NT === AllNode  && (R += 1)
-                NT === CutNode  && (R += 1)
-                (promotion(m) ≠ PieceType(0)) && (R = max(1, R - 1))
-                if !is_pv_node && ply ≥ 5 &&
-                    eval < eval_stack[ply - 2, tid] < eval_stack[ply - 4, tid]
-                    R += 1
-                end
-
-                # Reduce more with low continuation history
-                if is_quiet && ply ≥ 3
-                    prev_pt,  prev_to  = move_stack[ply - 1, tid]
-                    prev2_pt, prev2_to = move_stack[ply - 2, tid]
-                    ch  = prev_pt  > 0 ? Int(cont_hist[to(m).val, cur_pt, prev_to,  prev_pt,  stm, tid]) : 0
-                    ch2 = prev2_pt > 0 ? Int(cont_hist2[to(m).val, cur_pt, prev2_to, prev2_pt, stm, tid]) : 0
-                    (ch + ch2) < -1000 && (R += 1)
-                end
-
-                # Reduce more for moves that nearly failed SEE pruning
-                if see_threshold != 0 && see_val < see_threshold ÷ 3 
-                    R += 1
-                end
-                R = min(R, depth - 1)
-            else
-                R = 0
-            end
-
-            # PV: first legal ⟹ PVNode; others ⟹ CutNode
-            # Cut: first legal ⟹ AllNode; others ⟹ CutNode
-            # All: all children ⟹ CutNode
-            child_pv  = _NO_PV
-            child_idx = min(ply + 1, 256)
-            if legal_moves == 1 && is_pv_node
-                child_pv = _PV_BUFS[tid][child_idx]; empty!(child_pv)
-                sc = -negamax(PVNode, b, new_depth, -β, -α, ply + 1, key_history, tid, child_pv)
-            elseif is_cut_node && legal_moves == 1
-                sc = -negamax(AllNode, b, new_depth - R, -α - 1, -α, ply + 1, key_history, tid)
-                if sc > α && R > 0
-                    sc = -negamax(AllNode, b, new_depth, -α - 1, -α, ply + 1, key_history, tid)
-                end
-            else
-                sc = -negamax(CutNode, b, new_depth - R, -α - 1, -α, ply + 1, key_history, tid)
-                if sc > α
-                    R > 0 && (sc = -negamax(CutNode, b, new_depth, -α - 1, -α, ply + 1, key_history, tid))
-                    if is_pv_node && sc > α && sc < β
-                        child_pv = _PV_BUFS[tid][child_idx]; empty!(child_pv)
-                        sc = -negamax(PVNode, b, new_depth, -β, -α, ply + 1, key_history, tid, child_pv)
-                    end
-                end
-            end
-
-            pop!(key_history)
-            undomove!(b, u)
-            undo_update!(nnue_accs[tid], b, m, nnue_net)
-
-            if sc > best_score
-                best_score = sc
-                best_move  = m
-
-                if sc > α
-                    α    = sc
-                    flag = TT_EXACT
-                    if is_pv_node
-                        empty!(pv)
-                        push!(pv, m)
-                        append!(pv, child_pv)
-                    end
-
-                    if α ≥ β
-                        flag = TT_LOWER
-                        bonus = depth * depth
-
-                        if is_quiet
-                            killers[2, ply, tid] = killers[1, ply, tid]
-                            killers[1, ply, tid] = m
-                            update_history!(stm, from(m).val, to(m).val, bonus, tid)
-                            update_cont_hist!(stm, ply, cur_pt, to(m).val, bonus, tid)
-                            update_pawn_hist!(b, cur_pt, to(m).val, bonus)
-                            for i in 1:nq
-                                qm = quiet_buf[i]
-                                qm_pt = ptype(pieceon(b, from(qm))).val
-                                update_history!(stm, from(qm).val, to(qm).val, -bonus, tid)
-                                update_cont_hist!(stm, ply, qm_pt, to(qm).val, -bonus, tid)
-                                update_pawn_hist!(b, qm_pt, to(qm).val, -bonus)
-                            end
-                        elseif is_capture && depth > 2
-                            pc     = Int(b.pieces[from(m).val])
-                            cap_pt = max(1, ptype(pieceon(b, to(m))).val)
-                            update_cap_hist!(pc, to(m).val, cap_pt, bonus, tid)
-                            for i in 1:nc
-                                cm = capture_buf[i]
-                                cm_pc     = Int(b.pieces[from(cm).val])
-                                cm_cap_pt = max(1, ptype(pieceon(b, to(cm))).val)
-                                update_cap_hist!(cm_pc, to(cm).val, cm_cap_pt, -bonus, tid)
-                            end
+                    if sc > α
+                        α    = sc
+                        flag = TT_EXACT
+                        if is_pv_node
+                            empty!(pv)
+                            push!(pv, m)
+                            append!(pv, child_pv)
                         end
-                        cutoff = true
-                        break
+
+                        if α ≥ β
+                            flag = TT_LOWER
+                            bonus = depth * depth
+
+                            if is_quiet
+                                killers[2, ply, tid] = killers[1, ply, tid]
+                                killers[1, ply, tid] = m
+                                update_history!(stm, from(m).val, to(m).val, bonus, tid)
+                                update_cont_hist!(stm, ply, cur_pt, to(m).val, bonus, tid)
+                                update_pawn_hist!(b, cur_pt, to(m).val, bonus)
+                                for i in 1:nq
+                                    qm = quiet_buf[i]
+                                    qm_pt = ptype(pieceon(b, from(qm))).val
+                                    update_history!(stm, from(qm).val, to(qm).val, -bonus, tid)
+                                    update_cont_hist!(stm, ply, qm_pt, to(qm).val, -bonus, tid)
+                                    update_pawn_hist!(b, qm_pt, to(qm).val, -bonus)
+                                end
+                            elseif is_capture && depth > 2
+                                pc     = Int(b.pieces[from(m).val])
+                                cap_pt = max(1, ptype(pieceon(b, to(m))).val)
+                                update_cap_hist!(pc, to(m).val, cap_pt, bonus, tid)
+                                for i in 1:nc
+                                    cm = capture_buf[i]
+                                    cm_pc     = Int(b.pieces[from(cm).val])
+                                    cm_cap_pt = max(1, ptype(pieceon(b, to(cm))).val)
+                                    update_cap_hist!(cm_pc, to(cm).val, cm_cap_pt, -bonus, tid)
+                                end
+                            end
+                            cutoff = true
+                            break
+                        end
                     end
+                end
+
+                if is_quiet   
+                    nq += 1
+                    quiet_buf[nq] = m
+                else 
+                    nc += 1
+                    capture_buf[nc] = m
                 end
             end
 
-            if is_quiet   
-                nq += 1
-                quiet_buf[nq] = m
-            else 
-                nc += 1
-                capture_buf[nc] = m
+            cutoff && break
+        end
+
+        if legal_moves == 0 && !search_stopped[]
+            return in_check ? -(MATE_SCORE - ply) : 0
+        end
+
+        if !search_stopped[] && !in_check && depth ≥ 1
+            diff = best_score - raw_eval
+            best_is_capture = best_move ≠ Move(0) && moveiscapture(b, best_move)
+            direction_ok = (best_score > α_0) ? (diff > 0) : (diff < 0)          # fail-high: up only; fail-low: down only
+            if !best_is_capture && direction_ok
+                bonus = clamp(diff * depth * Δ, -Γ, Γ)
+                corr_update!(b.bb[BB_WP] | b.bb[BB_BP], stm, bonus)
+                update_minor_corr!(minor_key(b), stm, bonus)
+                update_major_corr_w!(b.bb[BB_WQ] | b.bb[BB_WR], stm, bonus)
+                update_major_corr_b!(b.bb[BB_BQ] | b.bb[BB_BR], stm, bonus)
             end
         end
 
-        cutoff && break
-    end
-
-    if legal_moves == 0 && !search_stopped[]
-        return in_check ? -(MATE_SCORE - ply) : 0
-    end
-
-    if !search_stopped[] && !in_check && depth ≥ 1
-        diff = best_score - raw_eval
-        best_is_capture = best_move ≠ Move(0) && moveiscapture(b, best_move)
-        direction_ok = (best_score > α_0) ? (diff > 0) : (diff < 0)          # fail-high: up only; fail-low: down only
-        if !best_is_capture && direction_ok
-            bonus = clamp(diff * depth * Δ, -Γ, Γ)
-            corr_update!(b.bb[BB_WP] | b.bb[BB_BP], stm, bonus)
-            update_minor_corr!(minor_key(b), stm, bonus)
-            update_major_corr_w!(b.bb[BB_WQ] | b.bb[BB_WR], stm, bonus)
-            update_major_corr_b!(b.bb[BB_BQ] | b.bb[BB_BR], stm, bonus)
-        end
-    end
-
-    !search_stopped[] && !is_singular && store_tt(b.key, depth, best_score, flag, is_pv_node, best_move, ply)
+        !search_stopped[] && !is_singular && store_tt(b.key, depth, best_score, flag, is_pv_node, best_move, ply)
     end
     return best_score
 end
@@ -864,7 +865,7 @@ function search(b::Board, max_depth::Int, tid::Int; depth_offset::Int=0)::UInt64
 
         prev_best    = best_move
         had_asp_fail = false
-        window       = 35
+        window       = asp_init_window
         asp_α        = depth ≥ 6 ? prev_score - window : -∞
         asp_β        = depth ≥ 6 ? prev_score + window :  ∞
         best_score   = prev_score
@@ -879,12 +880,12 @@ function search(b::Board, max_depth::Int, tid::Int; depth_offset::Int=0)::UInt64
             if sc ≤ asp_α
                 had_asp_fail = true
                 window *= 2
-                asp_α = window ≥ 200 ? -∞ : max(asp_α - window, -∞)
+                asp_α = window ≥ asp_inf_thresh ? -∞ : max(asp_α - window, -∞)
             elseif sc ≥ asp_β
                 had_asp_fail = true
                 !isempty(iter_pv) && (best_move = iter_pv[1]; best_score = sc)
                 window *= 2
-                asp_β = window ≥ 200 ?  ∞ : min(asp_β + window, ∞)
+                asp_β = window ≥ asp_inf_thresh ?  ∞ : min(asp_β + window, ∞)
             else
                 best_score = sc
                 !isempty(iter_pv) && (best_move = iter_pv[1])

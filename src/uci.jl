@@ -95,6 +95,7 @@ function process_option(tokens::Vector{String})
 end
 
 include("nnue.jl")
+include("params.jl")
 include("search.jl")
 _init_book!()
 
