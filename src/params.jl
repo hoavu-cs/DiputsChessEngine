@@ -7,6 +7,10 @@ const asp_inf_thresh   = 200
 # LMR formula: R = 1 + log(d) * log(i) / (lmr_div / 1000)
 const lmr_div = 3000
 
+# LMR re-search depth adjustment (cp): reduced search well above best ⟹ deeper; barely above ⟹ shallower
+const lmr_deeper  = 100
+const lmr_shallow = 10
+
 # Reverse futility pruning
 const rfp_mult             = (140, 145, 155, 160, 165, 175, 200)  # per depth 1–7
 const rfp_improving_offset = 90

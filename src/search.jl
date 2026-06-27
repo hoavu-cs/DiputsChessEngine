@@ -403,67 +403,67 @@ function quiescence(b::Board, α::Int, β::Int, ply::Int, key_history::Vector{UI
 
     @inbounds begin
 
-    # Probe TT with depth -1 
-    hit, tt_score, tt_flag, _, _, _ = probe_tt(b.key, DEPTH_QS, ply)
-    if hit
-        if (tt_flag == TT_LOWER && tt_score ≥ β) || (tt_flag == TT_UPPER && tt_score ≤ α)
-            return tt_score
+        # Probe TT with depth -1 
+        hit, tt_score, tt_flag, _, _, _ = probe_tt(b.key, DEPTH_QS, ply)
+        if hit
+            if (tt_flag == TT_LOWER && tt_score ≥ β) || (tt_flag == TT_UPPER && tt_score ≤ α)
+                return tt_score
+            end
         end
-    end
 
-    # Exhaust captures
-    stand_pat = nnue_eval(nnue_accs[tid], b, nnue_net)
-    if stand_pat ≥ β
-        !search_stopped[] && store_tt(b.key, DEPTH_QS, stand_pat, TT_LOWER, false, Move(0), ply)
-        return stand_pat
-    end
-    α = max(α, stand_pat)
+        # Exhaust captures
+        stand_pat = nnue_eval(nnue_accs[tid], b, nnue_net)
+        if stand_pat ≥ β
+            !search_stopped[] && store_tt(b.key, DEPTH_QS, stand_pat, TT_LOWER, false, Move(0), ply)
+            return stand_pat
+        end
+        α = max(α, stand_pat)
 
-    cap_buf = _MOVE_BUFS[tid][min(ply, _MAX_BUF_PLY - 1) + 1]
-    generate_captures!(cap_buf, b)
-    j = cap_buf.count
-    if j == 0
-        !search_stopped[] && store_tt(b.key, DEPTH_QS, α, TT_UPPER, false, Move(0), ply)
-        return α
-    end
-    cap_view = @view cap_buf.moves[1:j]
+        cap_buf = _MOVE_BUFS[tid][min(ply, _MAX_BUF_PLY - 1) + 1]
+        generate_captures!(cap_buf, b)
+        j = cap_buf.count
+        if j == 0
+            !search_stopped[] && store_tt(b.key, DEPTH_QS, α, TT_UPPER, false, Move(0), ply)
+            return α
+        end
+        cap_view = @view cap_buf.moves[1:j]
 
-    sort_moves!(b, cap_view, ply, Move(0), Move(0), Move(0), tid)
+        sort_moves!(b, cap_view, ply, Move(0), Move(0), Move(0), tid)
 
-    best      = stand_pat
-    best_move = Move(0)
-    for m in cap_view
-        search_stopped[] && break
+        best      = stand_pat
+        best_move = Move(0)
+        for m in cap_view
+            search_stopped[] && break
 
-        # Skip captures that lose material - they can't raise alpha from stand_pat.
-        promotion(m) == PieceType(0) && see(b, m) < 0 && continue
+            # Skip captures that lose material - they can't raise alpha from stand_pat.
+            promotion(m) == PieceType(0) && see(b, m) < 0 && continue
 
-        update!(nnue_accs[tid], b, m, nnue_net)
-        u  = domove!(b, m)
-        if was_illegal(b)
+            update!(nnue_accs[tid], b, m, nnue_net)
+            u  = domove!(b, m)
+            if was_illegal(b)
+                undomove!(b, u)
+                undo_update!(nnue_accs[tid], b, m, nnue_net)
+                continue
+            end
+            push!(key_history, b.key)
+            sc = -quiescence(b, -β, -α, ply + 1, key_history, tid)
+            pop!(key_history)
             undomove!(b, u)
             undo_update!(nnue_accs[tid], b, m, nnue_net)
-            continue
-        end
-        push!(key_history, b.key)
-        sc = -quiescence(b, -β, -α, ply + 1, key_history, tid)
-        pop!(key_history)
-        undomove!(b, u)
-        undo_update!(nnue_accs[tid], b, m, nnue_net)
 
-        if sc > best
-            best      = sc
-            best_move = m
+            if sc > best
+                best      = sc
+                best_move = m
+            end
+            α = max(α, sc)
+            α ≥ β && break
         end
-        α = max(α, sc)
-        α ≥ β && break
-    end
 
-    # Store result in TT at depth -1
-    if !search_stopped[]
-        flag = best ≥ β ? TT_LOWER : TT_UPPER
-        store_tt(b.key, DEPTH_QS, best, flag, false, best_move, ply)
-    end
+        # Store result in TT at depth -1
+        if !search_stopped[]
+            flag = best ≥ β ? TT_LOWER : TT_UPPER
+            store_tt(b.key, DEPTH_QS, best, flag, false, best_move, ply)
+        end
 
     end
 
@@ -492,7 +492,7 @@ function negamax(
         _NODE_COUNT[tid] += 1
         _SELDEPTH[tid] = max(_SELDEPTH[tid], ply)
         search_stopped[] && return 0
-        ply > 230 && return quiescence(b, α, β, ply, key_history, tid)
+        ply > 99 && return quiescence(b, α, β, ply, key_history, tid)
         if _NODE_COUNT[tid] & 0x3FFF == 0 && time_ns() ≥ search_deadline[]
             search_stopped[] = true
             return 0
@@ -744,15 +744,25 @@ function negamax(
                 elseif is_cut_node && legal_moves == 1
                     sc = -negamax(AllNode, b, new_depth - R, -α - 1, -α, ply + 1, key_history, tid)
                     if sc > α && R > 0
-                        sc = -negamax(AllNode, b, new_depth, -α - 1, -α, ply + 1, key_history, tid)
+                        # Adjust re-search depth by how far the reduced search beat best_score
+                        rd = new_depth - Int(sc < best_score + lmr_shallow)
+                        if rd > new_depth - R
+                            sc = -negamax(AllNode, b, rd, -α - 1, -α, ply + 1, key_history, tid)
+                        end
                     end
                 else
                     sc = -negamax(CutNode, b, new_depth - R, -α - 1, -α, ply + 1, key_history, tid)
                     if sc > α
-                        R > 0 && (sc = -negamax(CutNode, b, new_depth, -α - 1, -α, ply + 1, key_history, tid))
+                        rd = new_depth
+                        if R > 0
+                            rd = new_depth - Int(sc < best_score + lmr_shallow)
+                            if rd > new_depth - R
+                                sc = -negamax(CutNode, b, rd, -α - 1, -α, ply + 1, key_history, tid)
+                            end
+                        end
                         if is_pv_node && sc > α && sc < β
                             child_pv = _PV_BUFS[tid][child_idx]; empty!(child_pv)
-                            sc = -negamax(PVNode, b, new_depth, -β, -α, ply + 1, key_history, tid, child_pv)
+                            sc = -negamax(PVNode, b, rd, -β, -α, ply + 1, key_history, tid, child_pv)
                         end
                     end
                 end
@@ -942,7 +952,7 @@ function smp_search(b::Board, max_depth::Int, time_soft::Int, time_hard::Int)::U
     tasks = Vector{Task}(undef, n)
     for tid in 2:n
         b_copy = deepcopy(b)
-        offset = (tid - 1) % 2  # tid=2 → 1, tid=3 → 0, tid=4 → 1, ...
+        offset = (tid - 1) % 2 
         tasks[tid] = Threads.@spawn search(b_copy, max_depth, tid; depth_offset=offset)
     end
 
