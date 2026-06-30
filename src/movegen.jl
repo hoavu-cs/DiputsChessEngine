@@ -379,22 +379,22 @@ const _BQ_PATH = bit(57) | bit(58) | bit(59)        # B8, C8, D8
 # Check if a square is attacked by the opponent
 @inline function is_attacked(pos::Board, s::Int, by::Int)
     @inbounds begin
-    bb  = pos.bb
-    occ = pos.occupied
-    if by == 0
-        (PAWN_ATTACKS[2][s + 1] & bb[BB_WP]) ≠ 0 && return true
-        (KNIGHT_ATTACKS[s + 1]  & bb[BB_WN]) ≠ 0 && return true
-        (KING_ATTACKS[s + 1]    & bb[BB_WK]) ≠ 0 && return true
-        (bishop_attacks(s, occ) & (bb[BB_WB] | bb[BB_WQ])) ≠ 0 && return true
-        (rook_attacks(s, occ)   & (bb[BB_WR] | bb[BB_WQ])) ≠ 0 && return true
-    else
-        (PAWN_ATTACKS[1][s + 1] & bb[BB_BP]) ≠ 0 && return true
-        (KNIGHT_ATTACKS[s + 1]  & bb[BB_BN]) ≠ 0 && return true
-        (KING_ATTACKS[s + 1]    & bb[BB_BK]) ≠ 0 && return true
-        (bishop_attacks(s, occ) & (bb[BB_BB] | bb[BB_BQ])) ≠ 0 && return true
-        (rook_attacks(s, occ)   & (bb[BB_BR] | bb[BB_BQ])) ≠ 0 && return true
-    end
-    return false
+        bb  = pos.bb
+        occ = pos.occupied
+        if by == 0
+            (PAWN_ATTACKS[2][s + 1] & bb[BB_WP]) ≠ 0 && return true
+            (KNIGHT_ATTACKS[s + 1]  & bb[BB_WN]) ≠ 0 && return true
+            (KING_ATTACKS[s + 1]    & bb[BB_WK]) ≠ 0 && return true
+            (bishop_attacks(s, occ) & (bb[BB_WB] | bb[BB_WQ])) ≠ 0 && return true
+            (rook_attacks(s, occ)   & (bb[BB_WR] | bb[BB_WQ])) ≠ 0 && return true
+        else
+            (PAWN_ATTACKS[1][s + 1] & bb[BB_BP]) ≠ 0 && return true
+            (KNIGHT_ATTACKS[s + 1]  & bb[BB_BN]) ≠ 0 && return true
+            (KING_ATTACKS[s + 1]    & bb[BB_BK]) ≠ 0 && return true
+            (bishop_attacks(s, occ) & (bb[BB_BB] | bb[BB_BQ])) ≠ 0 && return true
+            (rook_attacks(s, occ)   & (bb[BB_BR] | bb[BB_BQ])) ≠ 0 && return true
+        end
+        return false
     end
 end
 
@@ -402,13 +402,13 @@ end
 # b.stm has already flipped, so the moving side is 1 - b.stm.
 @inline function was_illegal(b::Board)::Bool
     @inbounds begin
-    c        = 1 - b.stm
-    king_idx = c == 0 ? BB_WK : BB_BK
-    king_bb  = b.bb[king_idx]
-    king_bb  == 0 && return true   # own king gone — position is broken
-    # Reject king captures: if the side now to move has no king, we just captured it
-    opp_king_idx = b.stm == 0 ? BB_WK : BB_BK
-    b.bb[opp_king_idx] == 0 && return true
+        c        = 1 - b.stm
+        king_idx = c == 0 ? BB_WK : BB_BK
+        king_bb  = b.bb[king_idx]
+        king_bb  == 0 && return true   # own king gone — position is broken
+        # Reject king captures: if the side now to move has no king, we just captured it
+        opp_king_idx = b.stm == 0 ? BB_WK : BB_BK
+        b.bb[opp_king_idx] == 0 && return true
     end
     king_sq = poplsb(king_bb)
     return is_attacked(b, king_sq, b.stm)
@@ -426,25 +426,25 @@ end
     opp = 1 - color
 
     @inbounds begin
-    if color == 0
-        from == 4   || return
-        !is_attacked(pos, 4, opp)  || return
-        (pos.castle_rights & 1) ≠ 0 && (occ & _WK_PATH) == 0 &&
-            (pos.bb[BB_WR] & bit(7)) ≠ 0 &&
-            !is_attacked(pos, 5, opp) && !is_attacked(pos, 6, opp) && push_move!(ml, 4, 6, 0, 2)
-        (pos.castle_rights & 2) ≠ 0 && (occ & _WQ_PATH) == 0 &&
-            (pos.bb[BB_WR] & bit(0)) ≠ 0 &&
-            !is_attacked(pos, 3, opp) && !is_attacked(pos, 2, opp) && push_move!(ml, 4, 2, 0, 3)
-    else
-        from == 60  || return
-        !is_attacked(pos, 60, opp) || return
-        (pos.castle_rights & 4) ≠ 0 && (occ & _BK_PATH) == 0 &&
-            (pos.bb[BB_BR] & bit(63)) ≠ 0 &&
-            !is_attacked(pos, 61, opp) && !is_attacked(pos, 62, opp) && push_move!(ml, 60, 62, 0, 2)
-        (pos.castle_rights & 8) ≠ 0 && (occ & _BQ_PATH) == 0 &&
-            (pos.bb[BB_BR] & bit(56)) ≠ 0 &&
-            !is_attacked(pos, 59, opp) && !is_attacked(pos, 58, opp) && push_move!(ml, 60, 58, 0, 3)
-    end
+        if color == 0
+            from == 4   || return
+            !is_attacked(pos, 4, opp)  || return
+            (pos.castle_rights & 1) ≠ 0 && (occ & _WK_PATH) == 0 &&
+                (pos.bb[BB_WR] & bit(7)) ≠ 0 &&
+                !is_attacked(pos, 5, opp) && !is_attacked(pos, 6, opp) && push_move!(ml, 4, 6, 0, 2)
+            (pos.castle_rights & 2) ≠ 0 && (occ & _WQ_PATH) == 0 &&
+                (pos.bb[BB_WR] & bit(0)) ≠ 0 &&
+                !is_attacked(pos, 3, opp) && !is_attacked(pos, 2, opp) && push_move!(ml, 4, 2, 0, 3)
+        else
+            from == 60  || return
+            !is_attacked(pos, 60, opp) || return
+            (pos.castle_rights & 4) ≠ 0 && (occ & _BK_PATH) == 0 &&
+                (pos.bb[BB_BR] & bit(63)) ≠ 0 &&
+                !is_attacked(pos, 61, opp) && !is_attacked(pos, 62, opp) && push_move!(ml, 60, 62, 0, 2)
+            (pos.castle_rights & 8) ≠ 0 && (occ & _BQ_PATH) == 0 &&
+                (pos.bb[BB_BR] & bit(56)) ≠ 0 &&
+                !is_attacked(pos, 59, opp) && !is_attacked(pos, 58, opp) && push_move!(ml, 60, 58, 0, 3)
+        end
     end
 end
 
@@ -471,33 +471,33 @@ end
 function generate_moves!(ml::MoveList, pos::Board)
     ml.count = 0
     @inbounds begin
-    bb    = pos.bb
-    c     = pos.stm
-    base  = c * 6
-    our   = c == 0 ? pos.white_bb : pos.black_bb
-    their = c == 0 ? pos.black_bb : pos.white_bb
+        bb    = pos.bb
+        c     = pos.stm
+        base  = c * 6
+        our   = c == 0 ? pos.white_bb : pos.black_bb
+        their = c == 0 ? pos.black_bb : pos.white_bb
 
-    pcs = bb[base + 1]
-    while pcs ≠ 0; from, pcs = poplsb!(pcs); gen_pawn!(ml, pos, from, c, their); end
+        pcs = bb[base + 1]
+        while pcs ≠ 0; from, pcs = poplsb!(pcs); gen_pawn!(ml, pos, from, c, their); end
 
-    pcs = bb[base + 2]
-    while pcs ≠ 0; from, pcs = poplsb!(pcs); gen_knight!(ml, from, our); end
+        pcs = bb[base + 2]
+        while pcs ≠ 0; from, pcs = poplsb!(pcs); gen_knight!(ml, from, our); end
 
-    pcs = bb[base + 3]
-    while pcs ≠ 0; from, pcs = poplsb!(pcs); gen_bishop!(ml, pos, from, our); end
+        pcs = bb[base + 3]
+        while pcs ≠ 0; from, pcs = poplsb!(pcs); gen_bishop!(ml, pos, from, our); end
 
-    pcs = bb[base + 4]
-    while pcs ≠ 0; from, pcs = poplsb!(pcs); gen_rook!(ml, pos, from, our); end
+        pcs = bb[base + 4]
+        while pcs ≠ 0; from, pcs = poplsb!(pcs); gen_rook!(ml, pos, from, our); end
 
-    pcs = bb[base + 5]
-    while pcs ≠ 0
-        from, pcs = poplsb!(pcs)
-        gen_bishop!(ml, pos, from, our)
-        gen_rook!(ml, pos, from, our)
-    end
+        pcs = bb[base + 5]
+        while pcs ≠ 0
+            from, pcs = poplsb!(pcs)
+            gen_bishop!(ml, pos, from, our)
+            gen_rook!(ml, pos, from, our)
+        end
 
-    pcs = bb[base + 6]
-    while pcs ≠ 0; from, pcs = poplsb!(pcs); gen_king!(ml, pos, from, c, our); end
+        pcs = bb[base + 6]
+        while pcs ≠ 0; from, pcs = poplsb!(pcs); gen_king!(ml, pos, from, c, our); end
     end
 end
 
@@ -717,115 +717,115 @@ function domove!(pos::Board, move::UInt64)::UndoInfo
 
     @inbounds begin
 
-    src_bb = bit(from)
-    dst_bb = bit(to)
+        src_bb = bit(from)
+        dst_bb = bit(to)
 
-    # Find moving and captured pieces via piece map (O(1))
-    moving_idx = Int(pos.pieces[from + 1])
-    @assert moving_idx ≠ 0 "domove!: no piece at from=$from (stm=$(pos.stm))"
-    opp_base = opp * 6
-    captured_idx = flag ≠ 4 ? Int(pos.pieces[to + 1]) : 0
+        # Find moving and captured pieces via piece map (O(1))
+        moving_idx = Int(pos.pieces[from + 1])
+        @assert moving_idx ≠ 0 "domove!: no piece at from=$from (stm=$(pos.stm))"
+        opp_base = opp * 6
+        captured_idx = flag ≠ 4 ? Int(pos.pieces[to + 1]) : 0
 
-    undo = UndoInfo(move, captured_idx, pos.castle_rights, pos.ep_square, pos.halfmove_clock, pos.key)
+        undo = UndoInfo(move, captured_idx, pos.castle_rights, pos.ep_square, pos.halfmove_clock, pos.key)
 
-    # === Zobrist: XOR out old state ===
-    k = pos.key
-    k ⊻= _zob_psq(moving_idx, from)
-    k ⊻= _zob_castle(pos.castle_rights)
-    pos.ep_square ≠ 64 && (k ⊻= _zob_ep(pos.ep_square))
-    flag ≠ 4 && captured_idx ≠ 0 && (k ⊻= _zob_psq(captured_idx, to))
-    if flag == 2
-        c == 0 ? (k ⊻= _zob_psq(BB_WR, 7))  : (k ⊻= _zob_psq(BB_BR, 63))
-    elseif flag == 3
-        c == 0 ? (k ⊻= _zob_psq(BB_WR, 0))  : (k ⊻= _zob_psq(BB_BR, 56))
-    end
-
-    # Remove captured piece
-    captured_idx ≠ 0 && (pos.bb[captured_idx] &= ~dst_bb)
-
-    # Move piece: clear src, set dst
-    pos.bb[moving_idx] = (pos.bb[moving_idx] & ~src_bb) | dst_bb
-    pos.pieces[from + 1] = Int8(0)
-    pos.pieces[to + 1]   = Int8(moving_idx)
-
-    # Special flags
-    if flag == 1      # double pawn push — set ep square
-        pos.ep_square = c == 0 ? to - 8 : to + 8
-    elseif flag == 4  # en passant — remove captured pawn
-        ep_sq = c == 0 ? to - 8 : to + 8
-        pos.bb[opp_base + 1] &= ~bit(ep_sq)   # opp pawn bb = opp_base + BB_WP(1)
-        pos.pieces[ep_sq + 1] = Int8(0)
-        pos.ep_square = 64
-    elseif flag == 2  # kingside castle — move rook
-        if c == 0
-            pos.bb[BB_WR] = (pos.bb[BB_WR] & ~bit(7))  | bit(5)
-            pos.pieces[8] = Int8(0); pos.pieces[6] = Int8(BB_WR)
-        else
-            pos.bb[BB_BR] = (pos.bb[BB_BR] & ~bit(63)) | bit(61)
-            pos.pieces[64] = Int8(0); pos.pieces[62] = Int8(BB_BR)
+        # === Zobrist: XOR out old state ===
+        k = pos.key
+        k ⊻= _zob_psq(moving_idx, from)
+        k ⊻= _zob_castle(pos.castle_rights)
+        pos.ep_square ≠ 64 && (k ⊻= _zob_ep(pos.ep_square))
+        flag ≠ 4 && captured_idx ≠ 0 && (k ⊻= _zob_psq(captured_idx, to))
+        if flag == 2
+            c == 0 ? (k ⊻= _zob_psq(BB_WR, 7))  : (k ⊻= _zob_psq(BB_BR, 63))
+        elseif flag == 3
+            c == 0 ? (k ⊻= _zob_psq(BB_WR, 0))  : (k ⊻= _zob_psq(BB_BR, 56))
         end
-        pos.ep_square = 64
-    elseif flag == 3  # queenside castle — move rook
-        if c == 0
-            pos.bb[BB_WR] = (pos.bb[BB_WR] & ~bit(0))  | bit(3)
-            pos.pieces[1] = Int8(0); pos.pieces[4] = Int8(BB_WR)
+
+        # Remove captured piece
+        captured_idx ≠ 0 && (pos.bb[captured_idx] &= ~dst_bb)
+
+        # Move piece: clear src, set dst
+        pos.bb[moving_idx] = (pos.bb[moving_idx] & ~src_bb) | dst_bb
+        pos.pieces[from + 1] = Int8(0)
+        pos.pieces[to + 1]   = Int8(moving_idx)
+
+        # Special flags
+        if flag == 1      # double pawn push — set ep square
+            pos.ep_square = c == 0 ? to - 8 : to + 8
+        elseif flag == 4  # en passant — remove captured pawn
+            ep_sq = c == 0 ? to - 8 : to + 8
+            pos.bb[opp_base + 1] &= ~bit(ep_sq)   # opp pawn bb = opp_base + BB_WP(1)
+            pos.pieces[ep_sq + 1] = Int8(0)
+            pos.ep_square = 64
+        elseif flag == 2  # kingside castle — move rook
+            if c == 0
+                pos.bb[BB_WR] = (pos.bb[BB_WR] & ~bit(7))  | bit(5)
+                pos.pieces[8] = Int8(0); pos.pieces[6] = Int8(BB_WR)
+            else
+                pos.bb[BB_BR] = (pos.bb[BB_BR] & ~bit(63)) | bit(61)
+                pos.pieces[64] = Int8(0); pos.pieces[62] = Int8(BB_BR)
+            end
+            pos.ep_square = 64
+        elseif flag == 3  # queenside castle — move rook
+            if c == 0
+                pos.bb[BB_WR] = (pos.bb[BB_WR] & ~bit(0))  | bit(3)
+                pos.pieces[1] = Int8(0); pos.pieces[4] = Int8(BB_WR)
+            else
+                pos.bb[BB_BR] = (pos.bb[BB_BR] & ~bit(56)) | bit(59)
+                pos.pieces[57] = Int8(0); pos.pieces[60] = Int8(BB_BR)
+            end
+            pos.ep_square = 64
         else
-            pos.bb[BB_BR] = (pos.bb[BB_BR] & ~bit(56)) | bit(59)
-            pos.pieces[57] = Int8(0); pos.pieces[60] = Int8(BB_BR)
+            pos.ep_square = 64
         end
-        pos.ep_square = 64
-    else
-        pos.ep_square = 64
-    end
 
-    # Promotion — replace pawn at dst with promoted piece
-    if promo ≠ 0
-        pos.bb[base + 1]                    &= ~dst_bb   # remove pawn
-        pos.bb[base + _PROMO_OFFSET[promo]]  |= dst_bb   # add promoted piece
-        pos.pieces[to + 1] = Int8(base + _PROMO_OFFSET[promo])
-    end
+        # Promotion — replace pawn at dst with promoted piece
+        if promo ≠ 0
+            pos.bb[base + 1]                    &= ~dst_bb   # remove pawn
+            pos.bb[base + _PROMO_OFFSET[promo]]  |= dst_bb   # add promoted piece
+            pos.pieces[to + 1] = Int8(base + _PROMO_OFFSET[promo])
+        end
 
-    # Update castle rights (2 table lookups replace 10 branches)
-    pos.castle_rights &= _CASTLE_MASK_FROM[from + 1] & _CASTLE_MASK_TO[to + 1]
+        # Update castle rights (2 table lookups replace 10 branches)
+        pos.castle_rights &= _CASTLE_MASK_FROM[from + 1] & _CASTLE_MASK_TO[to + 1]
 
-    # === Zobrist: XOR in new state (ep_square and castle_rights already updated) ===
-    promo ≠ 0 ? (k ⊻= _zob_psq(base + _PROMO_OFFSET[promo], to)) :
-                 (k ⊻= _zob_psq(moving_idx, to))
-    if flag == 4
-        k ⊻= _zob_psq(opp_base + 1, c == 0 ? to - 8 : to + 8)
-    elseif flag == 2
-        c == 0 ? (k ⊻= _zob_psq(BB_WR, 5))  : (k ⊻= _zob_psq(BB_BR, 61))
-    elseif flag == 3
-        c == 0 ? (k ⊻= _zob_psq(BB_WR, 3))  : (k ⊻= _zob_psq(BB_BR, 59))
-    end
-    k ⊻= _zob_castle(pos.castle_rights)
-    pos.ep_square ≠ 64 && (k ⊻= _zob_ep(pos.ep_square))
-    k ⊻= _ZOB_STM
+        # === Zobrist: XOR in new state (ep_square and castle_rights already updated) ===
+        promo ≠ 0 ? (k ⊻= _zob_psq(base + _PROMO_OFFSET[promo], to)) :
+                    (k ⊻= _zob_psq(moving_idx, to))
+        if flag == 4
+            k ⊻= _zob_psq(opp_base + 1, c == 0 ? to - 8 : to + 8)
+        elseif flag == 2
+            c == 0 ? (k ⊻= _zob_psq(BB_WR, 5))  : (k ⊻= _zob_psq(BB_BR, 61))
+        elseif flag == 3
+            c == 0 ? (k ⊻= _zob_psq(BB_WR, 3))  : (k ⊻= _zob_psq(BB_BR, 59))
+        end
+        k ⊻= _zob_castle(pos.castle_rights)
+        pos.ep_square ≠ 64 && (k ⊻= _zob_ep(pos.ep_square))
+        k ⊻= _ZOB_STM
 
-    if flag == 4        # en passant
-        ep_sq  = c == 0 ? to - 8 : to + 8
-        ep_bit = bit(ep_sq)
-        if c == 0; pos.white_bb ⊻= src_bb | dst_bb; pos.black_bb ⊻= ep_bit
-        else;      pos.black_bb ⊻= src_bb | dst_bb; pos.white_bb ⊻= ep_bit; end
-    elseif flag == 2    # kingside castle: king + rook
-        if c == 0; pos.white_bb ⊻= src_bb | dst_bb | bit(7) | bit(5)
-        else;      pos.black_bb ⊻= src_bb | dst_bb | bit(63) | bit(61); end
-    elseif flag == 3    # queenside castle
-        if c == 0; pos.white_bb ⊻= src_bb | dst_bb | bit(0) | bit(3)
-        else;      pos.black_bb ⊻= src_bb | dst_bb | bit(56) | bit(59); end
-    elseif captured_idx ≠ 0  # normal capture (includes promotion-capture)
-        if c == 0; pos.white_bb ⊻= src_bb | dst_bb; pos.black_bb ⊻= dst_bb
-        else;      pos.black_bb ⊻= src_bb | dst_bb; pos.white_bb ⊻= dst_bb; end
-    else                # quiet / double push / promotion (no capture)
-        if c == 0; pos.white_bb ⊻= src_bb | dst_bb
-        else;      pos.black_bb ⊻= src_bb | dst_bb; end
-    end
-    pos.occupied = pos.white_bb | pos.black_bb
-    pos.empty    = ~pos.occupied
+        if flag == 4        # en passant
+            ep_sq  = c == 0 ? to - 8 : to + 8
+            ep_bit = bit(ep_sq)
+            if c == 0; pos.white_bb ⊻= src_bb | dst_bb; pos.black_bb ⊻= ep_bit
+            else;      pos.black_bb ⊻= src_bb | dst_bb; pos.white_bb ⊻= ep_bit; end
+        elseif flag == 2    # kingside castle: king + rook
+            if c == 0; pos.white_bb ⊻= src_bb | dst_bb | bit(7) | bit(5)
+            else;      pos.black_bb ⊻= src_bb | dst_bb | bit(63) | bit(61); end
+        elseif flag == 3    # queenside castle
+            if c == 0; pos.white_bb ⊻= src_bb | dst_bb | bit(0) | bit(3)
+            else;      pos.black_bb ⊻= src_bb | dst_bb | bit(56) | bit(59); end
+        elseif captured_idx ≠ 0  # normal capture (includes promotion-capture)
+            if c == 0; pos.white_bb ⊻= src_bb | dst_bb; pos.black_bb ⊻= dst_bb
+            else;      pos.black_bb ⊻= src_bb | dst_bb; pos.white_bb ⊻= dst_bb; end
+        else                # quiet / double push / promotion (no capture)
+            if c == 0; pos.white_bb ⊻= src_bb | dst_bb
+            else;      pos.black_bb ⊻= src_bb | dst_bb; end
+        end
+        pos.occupied = pos.white_bb | pos.black_bb
+        pos.empty    = ~pos.occupied
 
-    pos.halfmove_clock = (captured_idx ≠ 0 || flag == 4 || moving_idx == BB_WP || moving_idx == BB_BP) ? 0 : pos.halfmove_clock + 1
-    pos.stm      = opp
-    pos.key      = k
+        pos.halfmove_clock = (captured_idx ≠ 0 || flag == 4 || moving_idx == BB_WP || moving_idx == BB_BP) ? 0 : pos.halfmove_clock + 1
+        pos.stm      = opp
+        pos.key      = k
 
     end
     return undo
@@ -866,76 +866,77 @@ function undomove!(pos::Board, u::UndoInfo)
 
     @inbounds begin
 
-    src_bb = bit(from)
-    dst_bb = bit(to)
+        src_bb = bit(from)
+        dst_bb = bit(to)
 
-    if promo ≠ 0
-        # Undo promotion: remove promoted piece, restore pawn at src
-        pos.bb[base + _PROMO_OFFSET[promo]] &= ~dst_bb
-        pos.bb[base + 1]                     |= src_bb
-        pos.pieces[to + 1]   = Int8(u.captured_bb)
-        pos.pieces[from + 1] = Int8(base + 1)
-    else
-        # Move piece back: dst → src via piece map (O(1))
-        moving_idx = Int(pos.pieces[to + 1])
-        pos.bb[moving_idx] = (pos.bb[moving_idx] & ~dst_bb) | src_bb
-        pos.pieces[to + 1]   = Int8(u.captured_bb)
-        pos.pieces[from + 1] = Int8(moving_idx)
-    end
-
-    # Restore captured piece
-    u.captured_bb ≠ 0 && (pos.bb[u.captured_bb] |= dst_bb)
-
-    # Restore en passant pawn
-    if flag == 4
-        ep_sq = c == 0 ? to - 8 : to + 8
-        pos.bb[opp * 6 + 1] |= bit(ep_sq)   # opp pawn
-        pos.pieces[ep_sq + 1] = Int8(opp * 6 + 1)
-    end
-
-    # Restore castling rook
-    if flag == 2
-        if c == 0
-            pos.bb[BB_WR] = (pos.bb[BB_WR] & ~bit(5))  | bit(7)
-            pos.pieces[6] = Int8(0); pos.pieces[8] = Int8(BB_WR)
+        if promo ≠ 0
+            # Undo promotion: remove promoted piece, restore pawn at src
+            pos.bb[base + _PROMO_OFFSET[promo]] &= ~dst_bb
+            pos.bb[base + 1]                     |= src_bb
+            pos.pieces[to + 1]   = Int8(u.captured_bb)
+            pos.pieces[from + 1] = Int8(base + 1)
         else
-            pos.bb[BB_BR] = (pos.bb[BB_BR] & ~bit(61)) | bit(63)
-            pos.pieces[62] = Int8(0); pos.pieces[64] = Int8(BB_BR)
+            # Move piece back: dst → src via piece map (O(1))
+            moving_idx = Int(pos.pieces[to + 1])
+            pos.bb[moving_idx] = (pos.bb[moving_idx] & ~dst_bb) | src_bb
+            pos.pieces[to + 1]   = Int8(u.captured_bb)
+            pos.pieces[from + 1] = Int8(moving_idx)
         end
-    elseif flag == 3
-        if c == 0
-            pos.bb[BB_WR] = (pos.bb[BB_WR] & ~bit(3))  | bit(0)
-            pos.pieces[4] = Int8(0); pos.pieces[1] = Int8(BB_WR)
-        else
-            pos.bb[BB_BR] = (pos.bb[BB_BR] & ~bit(59)) | bit(56)
-            pos.pieces[60] = Int8(0); pos.pieces[57] = Int8(BB_BR)
+
+        # Restore captured piece
+        u.captured_bb ≠ 0 && (pos.bb[u.captured_bb] |= dst_bb)
+
+        # Restore en passant pawn
+        if flag == 4
+            ep_sq = c == 0 ? to - 8 : to + 8
+            pos.bb[opp * 6 + 1] |= bit(ep_sq)   # opp pawn
+            pos.pieces[ep_sq + 1] = Int8(opp * 6 + 1)
         end
-    end
 
-    pos.castle_rights  = u.castle_rights
-    pos.ep_square      = u.ep_square
-    pos.halfmove_clock = u.halfmove_clock
+        # Restore castling rook
+        if flag == 2
+            if c == 0
+                pos.bb[BB_WR] = (pos.bb[BB_WR] & ~bit(5))  | bit(7)
+                pos.pieces[6] = Int8(0); pos.pieces[8] = Int8(BB_WR)
+            else
+                pos.bb[BB_BR] = (pos.bb[BB_BR] & ~bit(61)) | bit(63)
+                pos.pieces[62] = Int8(0); pos.pieces[64] = Int8(BB_BR)
+            end
+        elseif flag == 3
+            if c == 0
+                pos.bb[BB_WR] = (pos.bb[BB_WR] & ~bit(3))  | bit(0)
+                pos.pieces[4] = Int8(0); pos.pieces[1] = Int8(BB_WR)
+            else
+                pos.bb[BB_BR] = (pos.bb[BB_BR] & ~bit(59)) | bit(56)
+                pos.pieces[60] = Int8(0); pos.pieces[57] = Int8(BB_BR)
+            end
+        end
 
-    if flag == 4        # en passant (XOR is self-inverse — same as domove!)
-        ep_sq  = c == 0 ? to - 8 : to + 8
-        ep_bit = bit(ep_sq)
-        if c == 0; pos.white_bb ⊻= src_bb | dst_bb; pos.black_bb ⊻= ep_bit
-        else;      pos.black_bb ⊻= src_bb | dst_bb; pos.white_bb ⊻= ep_bit; end
-    elseif flag == 2    # kingside castle
-        if c == 0; pos.white_bb ⊻= src_bb | dst_bb | bit(7) | bit(5)
-        else;      pos.black_bb ⊻= src_bb | dst_bb | bit(63) | bit(61); end
-    elseif flag == 3    # queenside castle
-        if c == 0; pos.white_bb ⊻= src_bb | dst_bb | bit(0) | bit(3)
-        else;      pos.black_bb ⊻= src_bb | dst_bb | bit(56) | bit(59); end
-    elseif u.captured_bb ≠ 0  # normal capture
-        if c == 0; pos.white_bb ⊻= src_bb | dst_bb; pos.black_bb ⊻= dst_bb
-        else;      pos.black_bb ⊻= src_bb | dst_bb; pos.white_bb ⊻= dst_bb; end
-    else                # quiet / double push / promotion (no capture)
-        if c == 0; pos.white_bb ⊻= src_bb | dst_bb
-        else;      pos.black_bb ⊻= src_bb | dst_bb; end
-    end
-    pos.occupied = pos.white_bb | pos.black_bb
-    pos.empty    = ~pos.occupied
+        pos.castle_rights  = u.castle_rights
+        pos.ep_square      = u.ep_square
+        pos.halfmove_clock = u.halfmove_clock
+
+        if flag == 4        # en passant (XOR is self-inverse — same as domove!)
+            ep_sq  = c == 0 ? to - 8 : to + 8
+            ep_bit = bit(ep_sq)
+            if c == 0; pos.white_bb ⊻= src_bb | dst_bb; pos.black_bb ⊻= ep_bit
+            else;      pos.black_bb ⊻= src_bb | dst_bb; pos.white_bb ⊻= ep_bit; end
+        elseif flag == 2    # kingside castle
+            if c == 0; pos.white_bb ⊻= src_bb | dst_bb | bit(7) | bit(5)
+            else;      pos.black_bb ⊻= src_bb | dst_bb | bit(63) | bit(61); end
+        elseif flag == 3    # queenside castle
+            if c == 0; pos.white_bb ⊻= src_bb | dst_bb | bit(0) | bit(3)
+            else;      pos.black_bb ⊻= src_bb | dst_bb | bit(56) | bit(59); end
+        elseif u.captured_bb ≠ 0  # normal capture
+            if c == 0; pos.white_bb ⊻= src_bb | dst_bb; pos.black_bb ⊻= dst_bb
+            else;      pos.black_bb ⊻= src_bb | dst_bb; pos.white_bb ⊻= dst_bb; end
+        else                # quiet / double push / promotion (no capture)
+            if c == 0; pos.white_bb ⊻= src_bb | dst_bb
+            else;      pos.black_bb ⊻= src_bb | dst_bb; end
+        end
+        pos.occupied = pos.white_bb | pos.black_bb
+        pos.empty    = ~pos.occupied
+
     end
     return nothing
 end
@@ -1086,25 +1087,27 @@ const _SEE_VAL = (100, 320, 346, 500, 890, 20000, 0)  # [P, N, B, R, Q, K, none]
 # Sliding attacks are recomputed with magic bitboards; non-sliders use precomputed tables.
 @inline function attacks_to(pos::Board, s::Int, occ::UInt64)::UInt64
     @inbounds begin
-    bb  = pos.bb                                   # 12 bitboards, [BB_WP..BB_BK]
-    fr, rr = file(s), rank(s)
-    atk = UInt64(0)
-    # White pawns attack s from (fr±1, rr-1)
-    if rr > 0
-        if fr > 0; atk |= bit(sq(fr-1, rr-1)) & bb[BB_WP]; end
-        if fr < 7; atk |= bit(sq(fr+1, rr-1)) & bb[BB_WP]; end
-    end
-    # Black pawns attack s from (fr±1, rr+1)
-    if rr < 7
-        if fr > 0; atk |= bit(sq(fr-1, rr+1)) & bb[BB_BP]; end
-        if fr < 7; atk |= bit(sq(fr+1, rr+1)) & bb[BB_BP]; end
-    end
-    s1 = s + 1                                    # 1-indexed table lookups
-    atk |= KNIGHT_ATTACKS[s1] & (bb[BB_WN] | bb[BB_BN])
-    atk |= KING_ATTACKS[s1]   & (bb[BB_WK] | bb[BB_BK])
-    atk |= bishop_attacks(s, occ) & (bb[BB_WB] | bb[BB_BB] | bb[BB_WQ] | bb[BB_BQ])
-    atk |= rook_attacks(s, occ)   & (bb[BB_WR] | bb[BB_BR] | bb[BB_WQ] | bb[BB_BQ])
-    return atk
+
+        bb  = pos.bb                                   # 12 bitboards, [BB_WP..BB_BK]
+        fr, rr = file(s), rank(s)
+        atk = UInt64(0)
+        # White pawns attack s from (fr±1, rr-1)
+        if rr > 0
+            if fr > 0; atk |= bit(sq(fr-1, rr-1)) & bb[BB_WP]; end
+            if fr < 7; atk |= bit(sq(fr+1, rr-1)) & bb[BB_WP]; end
+        end
+        # Black pawns attack s from (fr±1, rr+1)
+        if rr < 7
+            if fr > 0; atk |= bit(sq(fr-1, rr+1)) & bb[BB_BP]; end
+            if fr < 7; atk |= bit(sq(fr+1, rr+1)) & bb[BB_BP]; end
+        end
+        s1 = s + 1                                    # 1-indexed table lookups
+        atk |= KNIGHT_ATTACKS[s1] & (bb[BB_WN] | bb[BB_BN])
+        atk |= KING_ATTACKS[s1]   & (bb[BB_WK] | bb[BB_BK])
+        atk |= bishop_attacks(s, occ) & (bb[BB_WB] | bb[BB_BB] | bb[BB_WQ] | bb[BB_BQ])
+        atk |= rook_attacks(s, occ)   & (bb[BB_WR] | bb[BB_BR] | bb[BB_WQ] | bb[BB_BQ])
+        return atk
+
     end
 end
 
@@ -1114,43 +1117,43 @@ function see_rec(pos::Board, occ::UInt64, to::Int, side::Int, captured_val::Int,
                  attackers::UInt64, bishops_queens::UInt64, rooks_queens::UInt64)::Int
     @inbounds begin
 
-    attackers &= occ                             # filter to pieces still on board
-    side_attackers = attackers & (side == 0 ? pos.white_bb : pos.black_bb)
-    side_attackers == 0 && return 0              # no recapture available
+        attackers &= occ                             # filter to pieces still on board
+        side_attackers = attackers & (side == 0 ? pos.white_bb : pos.black_bb)
+        side_attackers == 0 && return 0              # no recapture available
 
-    bb = pos.bb
-    local bb_pt, pt
-    if (bb_pt = side_attackers & (side == 0 ? bb[BB_WP] : bb[BB_BP])) ≠ 0
-        pt = PAWN
-    elseif (bb_pt = side_attackers & (side == 0 ? bb[BB_WN] : bb[BB_BN])) ≠ 0
-        pt = KNIGHT
-    elseif (bb_pt = side_attackers & (side == 0 ? bb[BB_WB] : bb[BB_BB])) ≠ 0
-        pt = BISHOP
-    elseif (bb_pt = side_attackers & (side == 0 ? bb[BB_WR] : bb[BB_BR])) ≠ 0
-        pt = ROOK
-    elseif (bb_pt = side_attackers & (side == 0 ? bb[BB_WQ] : bb[BB_BQ])) ≠ 0
-        pt = QUEEN
-    else
-        bb_pt = side_attackers & (side == 0 ? bb[BB_WK] : bb[BB_BK])
-        bb_pt == 0 && return 0                       # no king (shouldn't happen)
-        # king can only capture if the opponent has no recapture
-        return (attackers & ~(side == 0 ? pos.white_bb : pos.black_bb) ≠ 0
-                ? 0 : captured_val)
-    end
+        bb = pos.bb
+        local bb_pt, pt
+        if (bb_pt = side_attackers & (side == 0 ? bb[BB_WP] : bb[BB_BP])) ≠ 0
+            pt = PAWN
+        elseif (bb_pt = side_attackers & (side == 0 ? bb[BB_WN] : bb[BB_BN])) ≠ 0
+            pt = KNIGHT
+        elseif (bb_pt = side_attackers & (side == 0 ? bb[BB_WB] : bb[BB_BB])) ≠ 0
+            pt = BISHOP
+        elseif (bb_pt = side_attackers & (side == 0 ? bb[BB_WR] : bb[BB_BR])) ≠ 0
+            pt = ROOK
+        elseif (bb_pt = side_attackers & (side == 0 ? bb[BB_WQ] : bb[BB_BQ])) ≠ 0
+            pt = QUEEN
+        else
+            bb_pt = side_attackers & (side == 0 ? bb[BB_WK] : bb[BB_BK])
+            bb_pt == 0 && return 0                       # no king (shouldn't happen)
+            # king can only capture if the opponent has no recapture
+            return (attackers & ~(side == 0 ? pos.white_bb : pos.black_bb) ≠ 0
+                    ? 0 : captured_val)
+        end
 
-    lva_val = _SEE_VAL[pt]
-    new_occ = occ ⊻ (bb_pt & -bb_pt)                # remove the capturing piece (x-ray)
-    new_attackers = attackers
-    if pt == PAWN || pt == BISHOP || pt == QUEEN
-        new_attackers |= bishop_attacks(to, new_occ) & bishops_queens
-    end
-    if pt == ROOK || pt == QUEEN
-        new_attackers |= rook_attacks(to, new_occ) & rooks_queens
-    end
+        lva_val = _SEE_VAL[pt]
+        new_occ = occ ⊻ (bb_pt & -bb_pt)                # remove the capturing piece (x-ray)
+        new_attackers = attackers
+        if pt == PAWN || pt == BISHOP || pt == QUEEN
+            new_attackers |= bishop_attacks(to, new_occ) & bishops_queens
+        end
+        if pt == ROOK || pt == QUEEN
+            new_attackers |= rook_attacks(to, new_occ) & rooks_queens
+        end
 
-    # capture only if net positive; opponent then recaptures our lva_val
-    return max(0, captured_val - see_rec(pos, new_occ, to, side ⊻ 1, lva_val,
-                                          new_attackers, bishops_queens, rooks_queens))
+        # capture only if net positive; opponent then recaptures our lva_val
+        return max(0, captured_val - see_rec(pos, new_occ, to, side ⊻ 1, lva_val,
+                                            new_attackers, bishops_queens, rooks_queens))
     end
 end
 
@@ -1165,24 +1168,26 @@ end
     promo = Int((m >> 12) & 0xf)
 
     @inbounds begin
-    cap_idx    = pos.pieces[to_s + 1]
-    target_val = cap_idx == 0 ? 0 : _SEE_VAL[((cap_idx - 1) % 6) + 1]
-    flag == 4 && (target_val = _SEE_VAL[PAWN])   # en passant: pawn not on to_s
 
-    our_idx = pos.pieces[fr + 1]
-    our_val = _SEE_VAL[((our_idx - 1) % 6) + 1]
-    if promo ≠ 0
-        promo_type  = promo == 1 ? QUEEN : promo == 2 ? ROOK : promo == 3 ? BISHOP : KNIGHT
-        target_val += _SEE_VAL[promo_type] - _SEE_VAL[PAWN]   # extra gain from promotion
-        our_val     = _SEE_VAL[promo_type]                     # opponent recaptures promoted piece
-    end
+        cap_idx    = pos.pieces[to_s + 1]
+        target_val = cap_idx == 0 ? 0 : _SEE_VAL[((cap_idx - 1) % 6) + 1]
+        flag == 4 && (target_val = _SEE_VAL[PAWN])   # en passant: pawn not on to_s
 
-    # Occupancy after the first capture: moving piece leaves `fr`
-    occ = pos.occupied ⊻ bit(fr)
-    flag == 4 && (occ ⊻= bit(pos.stm == WHITE ? to_s - 8 : to_s + 8))  # remove ep pawn
+        our_idx = pos.pieces[fr + 1]
+        our_val = _SEE_VAL[((our_idx - 1) % 6) + 1]
+        if promo ≠ 0
+            promo_type  = promo == 1 ? QUEEN : promo == 2 ? ROOK : promo == 3 ? BISHOP : KNIGHT
+            target_val += _SEE_VAL[promo_type] - _SEE_VAL[PAWN]   # extra gain from promotion
+            our_val     = _SEE_VAL[promo_type]                     # opponent recaptures promoted piece
+        end
 
-    bq = pos.bb[BB_WB] | pos.bb[BB_BB] | pos.bb[BB_WQ] | pos.bb[BB_BQ]
-    rq = pos.bb[BB_WR] | pos.bb[BB_BR] | pos.bb[BB_WQ] | pos.bb[BB_BQ]
+        # Occupancy after the first capture: moving piece leaves `fr`
+        occ = pos.occupied ⊻ bit(fr)
+        flag == 4 && (occ ⊻= bit(pos.stm == WHITE ? to_s - 8 : to_s + 8))  # remove ep pawn
+
+        bq = pos.bb[BB_WB] | pos.bb[BB_BB] | pos.bb[BB_WQ] | pos.bb[BB_BQ]
+        rq = pos.bb[BB_WR] | pos.bb[BB_BR] | pos.bb[BB_WQ] | pos.bb[BB_BQ]
+        
     end
 
     return target_val - see_rec(pos, occ, to_s, pos.stm ⊻ 1, our_val,
