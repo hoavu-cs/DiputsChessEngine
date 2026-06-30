@@ -400,8 +400,8 @@ function quiescence(b::Board, α::Int, β::Int, ply::Int, key_history::Vector{UI
     _NODE_COUNT[tid] += 1
     _SELDEPTH[tid] = max(_SELDEPTH[tid], ply)
     search_stopped[] && return 0
-    ply > 99 && return nnue_eval(nnue_accs[tid], b, nnue_net)            
-    ischeck(b) && return negamax(CutNode, b, 1, α, β, ply, key_history, tid)  
+    ply > 99 && return nnue_eval(nnue_accs[tid], b, nnue_net)   # max-ply guard
+    ischeck(b) && return negamax(CutNode, b, 1, α, β, ply, key_history, tid)   # do 1-ply search if in check
 
     @inbounds begin
 
@@ -494,7 +494,7 @@ function negamax(
         _NODE_COUNT[tid] += 1
         _SELDEPTH[tid] = max(_SELDEPTH[tid], ply)
         search_stopped[] && return 0
-        ply > 99 && return quiescence(b, α, β, ply, key_history, tid)
+        ply > 99 && return quiescence(b, α, β, ply, key_history, tid) # max-ply guard
         if _NODE_COUNT[tid] & 0x3FFF == 0 && time_ns() ≥ search_deadline[]
             search_stopped[] = true
             return 0
