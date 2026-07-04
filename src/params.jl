@@ -8,7 +8,7 @@ const asp_inf_thresh   = 200
 const lmr_div = 3000
 
 # LMR re-search depth adjustment (cp): reduced search well above best ⟹ deeper; barely above ⟹ shallower
-const lmr_deeper  = 100
+const lmr_deeper  = 150
 const lmr_shallow = 10
 
 # Reverse futility pruning
@@ -30,8 +30,9 @@ const sing_triple_thresh = 40
 # Mini-probcut
 const mini_pc_margin = 500
 
-# LMR continuation-history reduction threshold
-const lmr_ch_thresh = 1000
+# LMR continuation-history reduction thresholds
+const lmr_ch_thresh      = 1000
+const lmr_ch_high_thresh = 2000
 
 # Move ordering weights (÷ 1024)
 const cont_hist_w  = 1024   # cont hist 1

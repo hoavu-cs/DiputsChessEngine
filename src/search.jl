@@ -721,8 +721,10 @@ function negamax(
                         prev2_pt, prev2_to = move_stack[ply - 2, tid]
                         ch  = prev_pt  > 0 ? Int(cont_hist[to(m).val, cur_pt, prev_to,  prev_pt,  stm, tid]) : 0
                         ch2 = prev2_pt > 0 ? Int(cont_hist2[to(m).val, cur_pt, prev2_to, prev2_pt, stm, tid]) : 0
-                        if ch + ch2 < -lmr_ch_thresh 
+                        if ch + ch2 < -lmr_ch_thresh
                             R += 1
+                        elseif ch + ch2 > lmr_ch_high_thresh
+                            R = max(1, R - 1)
                         end
                     end
 
