@@ -45,3 +45,5 @@ const corr_pawn_w    = 1024
 const corr_minor_w   = 1024
 const corr_major_w_w =  512
 const corr_major_b_w =  512
+const corr_cont_w    =  512
+const corr_cont4_w   =  256

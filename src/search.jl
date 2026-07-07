@@ -66,25 +66,29 @@ end
 
 @inline function probe_tt(key::UInt64, depth::Int, ply::Int)
     @inbounds begin
-    idx = Int(key & tt_mask) + 1
-    entry = tt[idx]
-    (entry.flag == TT_EMPTY || entry.key ≠ key) && return (false, 0, TT_EMPTY, false, Move(0), -1)
-    score = entry.score
-    if abs(score) > MATE_SCORE - TT_MAX_PLY
-        score += score > 0 ? -ply : ply
-    end
+
+        idx = Int(key & tt_mask) + 1
+        entry = tt[idx]
+        (entry.flag == TT_EMPTY || entry.key ≠ key) && return (false, 0, TT_EMPTY, false, Move(0), -1)
+        score = entry.score
+        if abs(score) > MATE_SCORE - TT_MAX_PLY
+            score += score > 0 ? -ply : ply
+        end
+
     end
     return (entry.depth ≥ depth, score, entry.flag, entry.is_pv, entry.best, Int(entry.depth))
 end
 
 @inline function store_tt(key::UInt64, depth::Int, score::Int, flag::Int8, is_pv::Bool, best::UInt64, ply::Int)
     @inbounds begin
-    idx    = Int(key & tt_mask) + 1
-    stored = score
-    if abs(score) > MATE_SCORE - TT_MAX_PLY
-        stored = score + (score > 0 ? ply : -ply)
-    end
-    tt[idx] = TTEntry(key, Int32(depth), Int32(stored), flag, is_pv, best)
+
+        idx    = Int(key & tt_mask) + 1
+        stored = score
+        if abs(score) > MATE_SCORE - TT_MAX_PLY
+            stored = score + (score > 0 ? ply : -ply)
+        end
+        tt[idx] = TTEntry(key, Int32(depth), Int32(stored), flag, is_pv, best)
+
     end
 end
 
@@ -139,6 +143,7 @@ const nnue_accs = [Accumulator() for _ in 1:_N_THREADS]
         ≈ 0.75 * old + 0.25 * bonus
     Then clamp to [-Γ, Γ].
 """
+@inline gravity_update(old::Int, bonus::Int)::Int16 = Int16(clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ))
 
 const history      = zeros(Int16, 2, 64, 64, _N_THREADS)
 const cont_hist    = zeros(Int16, 64, 7, 64, 7, 2, _N_THREADS)
@@ -162,21 +167,16 @@ function clear_history()
     fill!(_MINOR_TABLE, Int16(0))
     fill!(_MAJORW_TABLE, Int16(0))
     fill!(_MAJORB_TABLE, Int16(0))
+    fill!(_CONT_CORR_TABLE, Int16(0))
+    fill!(_CONT_CORR_TABLE4, Int16(0))
 end
 
 @inline function update_cap_hist!(pc::Int, to_sq::Int, cap_pt::Int, bonus::Int, tid::Int)
-    @inbounds begin
-    old = Int(cap_hist[pc, to_sq, cap_pt, tid])
-    cap_hist[pc, to_sq, cap_pt, tid] = Int16(clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ))
-    end
+    @inbounds cap_hist[pc, to_sq, cap_pt, tid] = gravity_update(Int(cap_hist[pc, to_sq, cap_pt, tid]), bonus)
 end
 
 @inline function update_history!(color::Int, from_sq::Int, to_sq::Int, bonus::Int, tid::Int)
-    @inbounds begin
-    old = Int(history[color, from_sq, to_sq, tid])
-    newv = clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ)
-    history[color, from_sq, to_sq, tid] = Int16(newv)
-    end
+    @inbounds history[color, from_sq, to_sq, tid] = gravity_update(Int(history[color, from_sq, to_sq, tid]), bonus)
 end
 
 @inline function update_cont_hist!(
@@ -187,18 +187,16 @@ end
     tid::Int,
 )
     @inbounds begin
-    prev_pt, prev_to   = ply ≥ 2 ? move_stack[ply - 1, tid] : (0, 0)
-    prev2_pt, prev2_to = ply ≥ 3 ? move_stack[ply - 2, tid] : (0, 0)
-    end
-    prev_pt == 0 && return
-    @inbounds begin
-        old = Int(cont_hist[cur_to, cur_pt, prev_to, prev_pt, stm, tid])
-        cont_hist[cur_to, cur_pt, prev_to, prev_pt, stm, tid] = Int16(clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ))
-    end
-    if prev2_pt > 0
-        @inbounds begin
-            old2 = Int(cont_hist2[cur_to, cur_pt, prev2_to, prev2_pt, stm, tid])
-            cont_hist2[cur_to, cur_pt, prev2_to, prev2_pt, stm, tid] = Int16(clamp(old2 + (bonus - old2) * δ ÷ Δ, -Γ, Γ))
+        prev_pt, prev_to   = ply ≥ 2 ? move_stack[ply - 1, tid] : (0, 0)
+        prev2_pt, prev2_to = ply ≥ 3 ? move_stack[ply - 2, tid] : (0, 0)
+        prev_pt == 0 && return
+
+        cont_hist[cur_to, cur_pt, prev_to, prev_pt, stm, tid] =
+            gravity_update(Int(cont_hist[cur_to, cur_pt, prev_to, prev_pt, stm, tid]), bonus)
+
+        if prev2_pt > 0
+            cont_hist2[cur_to, cur_pt, prev2_to, prev2_pt, stm, tid] =
+                gravity_update(Int(cont_hist2[cur_to, cur_pt, prev2_to, prev2_pt, stm, tid]), bonus)
         end
     end
 end
@@ -221,12 +219,14 @@ const _CORR_TABLE   = zeros(Int16, 2, _CORR_SIZE)  # [white, black]
 
 @inline function pawn_hist_idx(b::Board)::Int
     @inbounds begin
-    pk = b.bb[BB_WP] ⊻ b.bb[BB_BP]
+
+        pk = b.bb[BB_WP] ⊻ b.bb[BB_BP]
+        pk = pk ⊻ (pk >> 33)
+        pk *= 0xFF51AFD7ED558CCD
+        pk = pk ⊻ (pk >> 33)
+        Int(pk & _PAWN_HIST_MASK) + 1
+
     end
-    pk = pk ⊻ (pk >> 33)
-    pk *= 0xFF51AFD7ED558CCD
-    pk = pk ⊻ (pk >> 33)
-    Int(pk & _PAWN_HIST_MASK) + 1
 end
 
 @inline function pawn_hist_score(b::Board, pt::Int, to::Int)::Int
@@ -235,9 +235,8 @@ end
 
 @inline function update_pawn_hist!(b::Board, pt::Int, to::Int, bonus::Int)
     @inbounds begin
-    idx = pawn_hist_idx(b)
-    old = Int(pawn_hist[pt, to, idx])
-    pawn_hist[pt, to, idx] = Int16(clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ))
+        idx = pawn_hist_idx(b)
+        pawn_hist[pt, to, idx] = gravity_update(Int(pawn_hist[pt, to, idx]), bonus)
     end
 end
 
@@ -247,10 +246,8 @@ end
 
 @inline function corr_update!(key::UInt64, color::Int, bonus::Int)
     @inbounds begin
-    idx  = Int(key & _CORR_MASK) + 1
-    old  = Int(_CORR_TABLE[color, idx])
-    newv = clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ)
-    _CORR_TABLE[color, idx] = Int16(newv)
+        idx = Int(key & _CORR_MASK) + 1
+        _CORR_TABLE[color, idx] = gravity_update(Int(_CORR_TABLE[color, idx]), bonus)
     end
 end
 
@@ -269,10 +266,8 @@ end
 
 @inline function update_minor_corr!(key::UInt64, color::Int, bonus::Int)
     @inbounds begin
-    idx  = Int(key & _MINOR_MASK) + 1
-    old  = Int(_MINOR_TABLE[color, idx])
-    newv = clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ)
-    _MINOR_TABLE[color, idx] = Int16(newv)
+        idx = Int(key & _MINOR_MASK) + 1
+        _MINOR_TABLE[color, idx] = gravity_update(Int(_MINOR_TABLE[color, idx]), bonus)
     end
 end
 
@@ -294,20 +289,44 @@ end
 
 @inline function update_major_corr_w!(key::UInt64, color::Int, bonus::Int)
     @inbounds begin
-    idx  = Int(key & _MAJORW_MASK) + 1
-    old  = Int(_MAJORW_TABLE[color, idx])
-    newv = clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ)
-    _MAJORW_TABLE[color, idx] = Int16(newv)
+        idx = Int(key & _MAJORW_MASK) + 1
+        _MAJORW_TABLE[color, idx] = gravity_update(Int(_MAJORW_TABLE[color, idx]), bonus)
     end
 end
 
 @inline function update_major_corr_b!(key::UInt64, color::Int, bonus::Int)
     @inbounds begin
-    idx  = Int(key & _MAJORB_MASK) + 1
-    old  = Int(_MAJORB_TABLE[color, idx])
-    newv = clamp(old + (bonus - old) * δ ÷ Δ, -Γ, Γ)
-    _MAJORB_TABLE[color, idx] = Int16(newv)
+        idx = Int(key & _MAJORB_MASK) + 1
+        _MAJORB_TABLE[color, idx] = gravity_update(Int(_MAJORB_TABLE[color, idx]), bonus)
     end
+end
+
+# Continuation correction history, jointly keyed on the moves at (ply-1) and (ply-2)
+const _CONT_CORR_TABLE = zeros(Int16, 64, 7, 64, 7, 2)
+
+@inline function cont_corr_value(cur_pt::Int, cur_to::Int, prev_pt::Int, prev_to::Int, color::Int)::Int
+    (cur_pt == 0 || prev_pt == 0) && return 0
+    @inbounds Int(_CONT_CORR_TABLE[cur_to, cur_pt, prev_to, prev_pt, color])
+end
+
+@inline function update_cont_corr!(cur_pt::Int, cur_to::Int, prev_pt::Int, prev_to::Int, color::Int, bonus::Int)
+    (cur_pt == 0 || prev_pt == 0) && return
+    @inbounds _CONT_CORR_TABLE[cur_to, cur_pt, prev_to, prev_pt, color] =
+        gravity_update(Int(_CONT_CORR_TABLE[cur_to, cur_pt, prev_to, prev_pt, color]), bonus)
+end
+
+# Second continuation correction history, jointly keyed on the moves at (ply-1) and (ply-4)
+const _CONT_CORR_TABLE4 = zeros(Int16, 64, 7, 64, 7, 2)
+
+@inline function cont_corr_value4(cur_pt::Int, cur_to::Int, prev_pt::Int, prev_to::Int, color::Int)::Int
+    (cur_pt == 0 || prev_pt == 0) && return 0
+    @inbounds Int(_CONT_CORR_TABLE4[cur_to, cur_pt, prev_to, prev_pt, color])
+end
+
+@inline function update_cont_corr4!(cur_pt::Int, cur_to::Int, prev_pt::Int, prev_to::Int, color::Int, bonus::Int)
+    (cur_pt == 0 || prev_pt == 0) && return
+    @inbounds _CONT_CORR_TABLE4[cur_to, cur_pt, prev_to, prev_pt, color] =
+        gravity_update(Int(_CONT_CORR_TABLE4[cur_to, cur_pt, prev_to, prev_pt, color]), bonus)
 end
 
 # ============================================================
@@ -331,32 +350,34 @@ const _SCORE_BAD_CAPTURE =  -100_000   # bad captures (SEE < 0): below all quiet
     tid::Int = 1,
 )::Int
     @inbounds begin
-    m == tt_move && return _SCORE_HASH
 
-    promo = promotion(m)
-    if promo ≠ PieceType(0)
-        return _SCORE_PROMO + promo.val
-    end
+        m == tt_move && return _SCORE_HASH
 
-    if moveiscapture(b, m)
-        see_val = see(b, m)
-        pc      = Int(b.pieces[from(m).val])            
-        cap_pt  = max(1, ptype(pieceon(b, to(m))).val)   # 0 on en passant → treat as pawn
-        ch      = Int(cap_hist[pc, to(m).val, cap_pt, tid]) * cap_hist_w ÷ 1024
-        return see_val ≥ 0 ? _SCORE_CAPTURE + see_val + ch : _SCORE_BAD_CAPTURE + see_val + ch
-    end
+        promo = promotion(m)
+        if promo ≠ PieceType(0)
+            return _SCORE_PROMO + promo.val
+        end
 
-    m == k1 && return _SCORE_KILLER
-    m == k2 && return _SCORE_KILLER - 1
+        if moveiscapture(b, m)
+            see_val = see(b, m)
+            pc      = Int(b.pieces[from(m).val])            
+            cap_pt  = max(1, ptype(pieceon(b, to(m))).val)   # 0 on en passant → treat as pawn
+            ch      = Int(cap_hist[pc, to(m).val, cap_pt, tid]) * cap_hist_w ÷ 1024
+            return see_val ≥ 0 ? _SCORE_CAPTURE + see_val + ch : _SCORE_BAD_CAPTURE + see_val + ch
+        end
 
-    color              = sidetomove(b) == WHITE ? 1 : 2
-    cur_pt             = ptype(pieceon(b, from(m))).val
-    prev_pt,  prev_to  = ply ≥ 2 ? move_stack[ply - 1, tid] : (0, 0)
-    prev2_pt, prev2_to = ply ≥ 3 ? move_stack[ply - 2, tid] : (0, 0)
-    ch  = prev_pt  > 0 ? Int(cont_hist[to(m).val,  cur_pt, prev_to,  prev_pt,  color, tid]) : 0
-    ch2 = prev2_pt > 0 ? Int(cont_hist2[to(m).val, cur_pt, prev2_to, prev2_pt, color, tid]) : 0
-    ph  = pawn_hist_score(b, cur_pt, to(m).val)
-    return history[color, from(m).val, to(m).val, tid] + (ch * cont_hist_w ÷ 1024) + (ch2 * cont_hist2_w ÷ 1024) + (ph * pawn_hist_w ÷ 1024)
+        m == k1 && return _SCORE_KILLER
+        m == k2 && return _SCORE_KILLER - 1
+
+        color              = sidetomove(b) == WHITE ? 1 : 2
+        cur_pt             = ptype(pieceon(b, from(m))).val
+        prev_pt,  prev_to  = ply ≥ 2 ? move_stack[ply - 1, tid] : (0, 0)
+        prev2_pt, prev2_to = ply ≥ 3 ? move_stack[ply - 2, tid] : (0, 0)
+        ch  = prev_pt  > 0 ? Int(cont_hist[to(m).val,  cur_pt, prev_to,  prev_pt,  color, tid]) : 0
+        ch2 = prev2_pt > 0 ? Int(cont_hist2[to(m).val, cur_pt, prev2_to, prev2_pt, color, tid]) : 0
+        ph  = pawn_hist_score(b, cur_pt, to(m).val)
+        return history[color, from(m).val, to(m).val, tid] + (ch * cont_hist_w ÷ 1024) + (ch2 * cont_hist2_w ÷ 1024) + (ph * pawn_hist_w ÷ 1024)
+    
     end
 end
 
@@ -370,25 +391,25 @@ function sort_moves!(
     tid::Int,
 )
     @inbounds begin
-    n      = length(ml)
-    scores = @view _MOVE_SCORES[1:n, ply, tid]
+        n      = length(ml)
+        scores = @view _MOVE_SCORES[1:n, ply, tid]
 
-    for i in 1:n
-        scores[i] = score_move(b, ml[i], tt_best, k1, k2, ply; tid=tid)
-    end
-
-    for i in 2:n
-        tmp_m = ml[i]
-        tmp_s = scores[i]
-        j = i - 1
-        while j ≥ 1 && scores[j] < tmp_s
-            ml[j+1]     = ml[j]
-            scores[j+1] = scores[j]
-            j -= 1
+        for i in 1:n
+            scores[i] = score_move(b, ml[i], tt_best, k1, k2, ply; tid=tid)
         end
-        ml[j+1]     = tmp_m
-        scores[j+1] = tmp_s
-    end
+
+        for i in 2:n
+            tmp_m = ml[i]
+            tmp_s = scores[i]
+            j = i - 1
+            while j ≥ 1 && scores[j] < tmp_s
+                ml[j+1]     = ml[j]
+                scores[j+1] = scores[j]
+                j -= 1
+            end
+            ml[j+1]     = tmp_m
+            scores[j+1] = tmp_s
+        end
     end
 end
 
@@ -489,8 +510,9 @@ function negamax(
     excluded_move::UInt64 = Move(0),
 )::Int where {NT <: NodeType}
 
-    is_singular = excluded_move ≠ Move(0)
     @inbounds begin
+
+        is_singular = excluded_move ≠ Move(0)
         _NODE_COUNT[tid] += 1
         _SELDEPTH[tid] = max(_SELDEPTH[tid], ply)
         search_stopped[] && return 0
@@ -548,10 +570,15 @@ function negamax(
         raw_eval = nnue_eval(nnue_accs[tid], b, nnue_net)
 
         # Apply pawn, minor & non-pawn correction history to raw eval
+        cont_cur_pt,  cont_cur_to  = ply ≥ 2 ? move_stack[ply - 1, tid] : (0, 0)
+        cont_prev_pt, cont_prev_to = ply ≥ 3 ? move_stack[ply - 2, tid] : (0, 0)
+        cont_prev4_pt, cont_prev4_to = ply ≥ 5 ? move_stack[ply - 4, tid] : (0, 0)
         eval = raw_eval + (corr_value(b.bb[BB_WP] | b.bb[BB_BP], stm) * corr_pawn_w ÷ 1024
                         + minor_corr_value(minor_key(b), stm) * corr_minor_w ÷ 1024
                         + major_corr_value_w(b.bb[BB_WQ] | b.bb[BB_WR], stm) * corr_major_w_w ÷ 1024
-                        + major_corr_value_b(b.bb[BB_BQ] | b.bb[BB_BR], stm) * corr_major_b_w ÷ 1024) ÷ Δ
+                        + major_corr_value_b(b.bb[BB_BQ] | b.bb[BB_BR], stm) * corr_major_b_w ÷ 1024
+                        + cont_corr_value(cont_cur_pt, cont_cur_to, cont_prev_pt, cont_prev_to, stm) * corr_cont_w ÷ 1024
+                        + cont_corr_value4(cont_cur_pt, cont_cur_to, cont_prev4_pt, cont_prev4_to, stm) * corr_cont4_w ÷ 1024) ÷ Δ
 
         # TT score overrides if it provides a tighter bound
         if tt_flag == TT_EXACT ||
@@ -848,6 +875,8 @@ function negamax(
                 update_minor_corr!(minor_key(b), stm, bonus)
                 update_major_corr_w!(b.bb[BB_WQ] | b.bb[BB_WR], stm, bonus)
                 update_major_corr_b!(b.bb[BB_BQ] | b.bb[BB_BR], stm, bonus)
+                update_cont_corr!(cont_cur_pt, cont_cur_to, cont_prev_pt, cont_prev_to, stm, bonus)
+                update_cont_corr4!(cont_cur_pt, cont_cur_to, cont_prev4_pt, cont_prev4_to, stm, bonus)
             end
         end
 
