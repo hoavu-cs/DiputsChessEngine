@@ -37,6 +37,8 @@ const lmr_ch_high_thresh = 2000
 # Move ordering weights (÷ 1024)
 const cont_hist_w  = 1024   # cont hist 1
 const cont_hist2_w = 1024   # cont hist 2
+const cont_hist4_w = 256   # cont hist 4
+const cont_hist6_w =  128   # cont hist 6
 const pawn_hist_w  =  435   # pawn hist
 const cap_hist_w   =   56   # capture hist 
 
