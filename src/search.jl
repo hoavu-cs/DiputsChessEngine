@@ -148,8 +148,6 @@ const nnue_accs = [Accumulator() for _ in 1:_N_THREADS]
 const history      = zeros(Int16, 2, 64, 64, _N_THREADS)
 const cont_hist    = zeros(Int16, 64, 7, 64, 7, 2, _N_THREADS)
 const cont_hist2   = zeros(Int16, 64, 7, 64, 7, 2, _N_THREADS)
-const cont_hist4   = zeros(Int16, 64, 7, 64, 7, 2, _N_THREADS)
-const cont_hist6   = zeros(Int16, 64, 7, 64, 7, 2, _N_THREADS)
 const cap_hist     = zeros(Int16, 12, 64, 6, _N_THREADS)  
 const eval_stack   = zeros(Int,   257, _N_THREADS)   
 const killers      = fill(Move(0), 2, 256, _N_THREADS)
@@ -161,8 +159,6 @@ function clear_history()
     fill!(history, 0)
     fill!(cont_hist, Int16(0))
     fill!(cont_hist2, Int16(0))
-    fill!(cont_hist4, Int16(0))
-    fill!(cont_hist6, Int16(0))
     fill!(cap_hist, Int16(0))
     fill!(pawn_hist, Int16(0))
     fill!(killers, Move(0))
@@ -193,9 +189,6 @@ end
     @inbounds begin
         prev_pt, prev_to   = ply ≥ 2 ? move_stack[ply - 1, tid] : (0, 0)
         prev2_pt, prev2_to = ply ≥ 3 ? move_stack[ply - 2, tid] : (0, 0)
-        prev4_pt, prev4_to = ply ≥ 5 ? move_stack[ply - 4, tid] : (0, 0)
-        prev6_pt, prev6_to = ply ≥ 7 ? move_stack[ply - 6, tid] : (0, 0)
-
         prev_pt == 0 && return
 
         cont_hist[cur_to, cur_pt, prev_to, prev_pt, stm, tid] =
@@ -204,16 +197,6 @@ end
         if prev2_pt > 0
             cont_hist2[cur_to, cur_pt, prev2_to, prev2_pt, stm, tid] =
                 gravity_update(Int(cont_hist2[cur_to, cur_pt, prev2_to, prev2_pt, stm, tid]), bonus)
-        end
-
-        if prev4_pt > 0
-            cont_hist4[cur_to, cur_pt, prev4_to, prev4_pt, stm, tid] =
-                gravity_update(Int(cont_hist4[cur_to, cur_pt, prev4_to, prev4_pt, stm, tid]), bonus)
-        end
-
-        if prev6_pt > 0
-            cont_hist6[cur_to, cur_pt, prev6_to, prev6_pt, stm, tid] =
-                gravity_update(Int(cont_hist6[cur_to, cur_pt, prev6_to, prev6_pt, stm, tid]), bonus)
         end
     end
 end
@@ -390,19 +373,11 @@ const _SCORE_BAD_CAPTURE =  -100_000   # bad captures (SEE < 0): below all quiet
         cur_pt             = ptype(pieceon(b, from(m))).val
         prev_pt,  prev_to  = ply ≥ 2 ? move_stack[ply - 1, tid] : (0, 0)
         prev2_pt, prev2_to = ply ≥ 3 ? move_stack[ply - 2, tid] : (0, 0)
-        prev4_pt, prev4_to = ply ≥ 5 ? move_stack[ply - 4, tid] : (0, 0)
-        prev6_pt, prev6_to = ply ≥ 7 ? move_stack[ply - 6, tid] : (0, 0)
         ch  = prev_pt  > 0 ? Int(cont_hist[to(m).val,  cur_pt, prev_to,  prev_pt,  color, tid]) : 0
         ch2 = prev2_pt > 0 ? Int(cont_hist2[to(m).val, cur_pt, prev2_to, prev2_pt, color, tid]) : 0
-        ch4 = prev4_pt > 0 ? Int(cont_hist4[to(m).val, cur_pt, prev4_to, prev4_pt, color, tid]) : 0
-        ch6 = prev6_pt > 0 ? Int(cont_hist6[to(m).val, cur_pt, prev6_to, prev6_pt, color, tid]) : 0
         ph  = pawn_hist_score(b, cur_pt, to(m).val)
-        return history[color, from(m).val, to(m).val, tid] + 
-                (ch * cont_hist_w ÷ 1024) + 
-                (ch2 * cont_hist2_w ÷ 1024) + 
-                (ch4 * cont_hist4_w ÷ 1024) + 
-                (ch6 * cont_hist6_w ÷ 1024) + 
-                (ph * pawn_hist_w ÷ 1024)
+        return history[color, from(m).val, to(m).val, tid] + (ch * cont_hist_w ÷ 1024) + (ch2 * cont_hist2_w ÷ 1024) + (ph * pawn_hist_w ÷ 1024)
+    
     end
 end
 
