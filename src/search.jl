@@ -6,7 +6,7 @@ const ∞        = 10_000_000
 const MATE_SCORE =  9_000_000
 
 const Δ = 256
-const δ = 64
+const δ = 80
 const Γ = 16384
 
 abstract type NodeType end
@@ -817,7 +817,7 @@ function negamax(
 
                         if α ≥ β
                             flag = TT_LOWER
-                            bonus = depth * depth
+                            bonus = depth * depth + 16 * depth
 
                             if is_quiet
                                 killers[2, ply, tid] = killers[1, ply, tid]
